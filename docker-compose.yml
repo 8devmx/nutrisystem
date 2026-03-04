@@ -1,0 +1,107 @@
+networks:
+  nutrisystem_network:
+    driver: bridge
+
+volumes:
+  db_data:
+  nginx_logs:
+
+services:
+
+  # ─────────────────────────────────────────
+  # API — Laravel 10 / PHP 8.2
+  # ─────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nutrisystem_api
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-nutrisystem}
+      DB_USERNAME: ${DB_USERNAME:-nutri_user}
+      DB_PASSWORD: ${DB_PASSWORD:-nutri_pass}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - nutrisystem_network
+
+  # ─────────────────────────────────────────
+  # WEB — Next.js 14 / Node.js 20
+  # ─────────────────────────────────────────
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nutrisystem_web
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost/api
+    depends_on:
+      - api
+    networks:
+      - nutrisystem_network
+
+  # ─────────────────────────────────────────
+  # DB — MySQL 8.0
+  # ─────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: nutrisystem_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - nutrisystem_network
+
+  # ─────────────────────────────────────────
+  # NGINX — Proxy inverso
+  # ─────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nutrisystem_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+      - ./backend:/var/www/html:ro
+    depends_on:
+      - api
+      - web
+    networks:
+      - nutrisystem_network
