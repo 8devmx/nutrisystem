@@ -120,6 +120,7 @@ class PlanController extends BaseApiController
             $equivalences    = $meal->food->equivalents->groupBy('group_name');
 
             $days[$meal->day_number][$meal->meal_moment][] = [
+                'meal_id'      => $meal->id,
                 'food'         => [
                     'id'         => $meal->food->id,
                     'name'       => $meal->food->name,

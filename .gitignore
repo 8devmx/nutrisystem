@@ -23,9 +23,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Sistema operativo
+# Sistema operativo (macOS / Windows)
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+ehthumbs.db
 
 # IDEs y editores
 .vscode/
@@ -44,3 +49,7 @@ venv/
 *.local
 coverage/
 .cache/
+
+# Claude — skills y configuración local
+.claude/skills/
+.claude/

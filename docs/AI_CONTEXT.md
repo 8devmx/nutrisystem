@@ -269,9 +269,29 @@ TDEE = BMR × factor_actividad
 
 ## 🎨 Frontend — Estado actual
 
-- Next.js 14 instalado con App Router, JavaScript (no TypeScript), Tailwind CSS, src/ directory.
-- **Pendiente Fase 3**: configurar Shadcn/UI, formulario de cálculo dinámico, vista de plan.
-- Variables de entorno relevantes: `NEXT_PUBLIC_API_URL=http://localhost/api`
+- Next.js 16 (App Router), JavaScript, Tailwind CSS v4, src/ directory.
+- ✅ Fase 3 completada: Shadcn/UI configurado, formulario de cálculo dinámico, Plan Viewer con equivalencias.
+- Variables de entorno: `NEXT_PUBLIC_API_URL=http://localhost/api`
+
+### Estructura de componentes
+```
+frontend/src/
+├── app/
+│   ├── page.js              ← Página principal con calculadora y plan viewer
+│   ├── layout.js            ← Root layout con Providers
+│   └── globals.css         ← Tailwind v4 + variables Shadcn
+├── components/
+│   ├── ui/                 ← Componentes Shadcn (button, card, input, select, badge, label)
+│   ├── features/            ← Componentes de dominio
+│   │   ├── NutritionCalculator.jsx
+│   │   └── PlanViewer.jsx
+│   └── providers.jsx       ← React Query provider
+├── hooks/
+│   └── useNutritionCalculator.js  ← Hook con fórmula Mifflin-St Jeor
+└── lib/
+    ├── api.js               ← Cliente API con fetch + JWT
+    └── utils.js             ← Utilidad cn() para Tailwind
+```
 
 ### Convenciones frontend
 - **Estado del servidor**: React Query (`@tanstack/react-query`).
@@ -288,8 +308,8 @@ TDEE = BMR × factor_actividad
 | Fase 0 | Docker, Nginx, docs de gobernanza | ✅ Completada |
 | Fase 1 | Migraciones, modelos Eloquent, seeders | ✅ Completada |
 | Fase 2 | NutritionService, middleware JWT, API REST | ✅ Completada |
-| Fase 3 | Frontend — UI/UX, dashboard, plan viewer | 🔲 Pendiente |
-| Fase 4 | Documentación para IAs | ✅ Este archivo |
+| Fase 3 | Frontend — UI/UX, dashboard, plan viewer | ✅ Completada |
+| Fase 4 | Documentación para IAs | ✅ Completada |
 
 ---
 

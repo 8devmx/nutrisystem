@@ -46,12 +46,13 @@ services:
     restart: unless-stopped
     working_dir: /app
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/.env.local:/app/.env.local
     environment:
       NODE_ENV: development
-      NEXT_PUBLIC_API_URL: http://localhost/api
+      # NEXT_PUBLIC_API_URL no va aquí — el browser no puede resolver hostnames de Docker.
+      # El cliente usa rutas relativas /api/... y Nginx hace el proxy al backend.
     depends_on:
       - api
     networks:
@@ -93,8 +94,8 @@ services:
     container_name: nutrisystem_nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "8090:80"
+      - "8091:443"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro

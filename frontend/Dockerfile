@@ -5,11 +5,11 @@ WORKDIR /app
 # Dependencias del sistema
 RUN apk add --no-cache libc6-compat
 
-# Instalar dependencias primero (cache de Docker)
-COPY package*.json ./
-RUN npm ci
-
+# Copiar código fuente completo
 COPY . .
+
+# Instalar dependencias
+RUN npm install
 
 EXPOSE 3000
 

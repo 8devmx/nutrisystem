@@ -1,26 +1,179 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════════════════════════════
+   NutriSystem Design System
+   Typography : Poppins (headings) + Inter (body)
+   Style      : Modern SaaS — clean, neutral, high contrast
+   Themes     : light · dark · system
+   ══════════════════════════════════════════════════════════════════ */
+
+@theme {
+  --font-heading: 'Poppins', sans-serif;
+  --font-body:    'Inter',   sans-serif;
+  --radius: 0.625rem;
+}
+
+/* ── Light theme (default) ────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  /* Brand */
+  --color-primary:            #16A34A;   /* green-600  */
+  --color-primary-hover:      #15803D;   /* green-700  */
+  --color-primary-light:      #DCFCE7;   /* green-100  */
+  --color-primary-foreground: #FFFFFF;
+
+  /* Accent */
+  --color-accent:             #0EA5E9;   /* sky-500    */
+  --color-accent-light:       #E0F2FE;   /* sky-100    */
+
+  /* Destructive */
+  --color-destructive:        #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+
+  /* Surface */
+  --color-background:         #F9FAFB;   /* gray-50    */
+  --color-surface:            #FFFFFF;
+  --color-surface-raised:     #F3F4F6;   /* gray-100   */
+
+  /* Borders */
+  --color-border:             #E5E7EB;   /* gray-200   */
+  --color-border-strong:      #D1D5DB;   /* gray-300   */
+
+  /* Text */
+  --color-foreground:         #111827;   /* gray-900   */
+  --color-foreground-muted:   #6B7280;   /* gray-500   */
+  --color-foreground-subtle:  #9CA3AF;   /* gray-400   */
+
+  /* shadcn/ui compat */
+  --color-card:               #FFFFFF;
+  --color-card-foreground:    #111827;
+  --color-popover:            #FFFFFF;
+  --color-popover-foreground: #111827;
+  --color-secondary:          #F3F4F6;
+  --color-secondary-foreground: #111827;
+  --color-muted:              #F3F4F6;
+  --color-muted-foreground:   #6B7280;
+  --color-input:              #E5E7EB;
+  --color-ring:               #16A34A;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.10), 0 4px 8px rgba(0,0,0,0.04);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ── Dark theme ───────────────────────────────────────────────────── */
+.dark {
+  color-scheme: dark;
+
+  /* Brand — slightly lighter for dark bg */
+  --color-primary:            #22C55E;   /* green-500  */
+  --color-primary-hover:      #16A34A;   /* green-600  */
+  --color-primary-light:      #14532D;   /* green-950  */
+  --color-primary-foreground: #FFFFFF;
+
+  /* Accent */
+  --color-accent:             #38BDF8;   /* sky-400    */
+  --color-accent-light:       #0C4A6E;   /* sky-950    */
+
+  /* Destructive */
+  --color-destructive:        #F87171;
+  --color-destructive-foreground: #FFFFFF;
+
+  /* Surface */
+  --color-background:         #0F172A;   /* slate-900  */
+  --color-surface:            #1E293B;   /* slate-800  */
+  --color-surface-raised:     #334155;   /* slate-700  */
+
+  /* Borders */
+  --color-border:             #334155;   /* slate-700  */
+  --color-border-strong:      #475569;   /* slate-600  */
+
+  /* Text — WCAG AA: foreground sobre surface ≥ 4.5:1 */
+  --color-foreground:         #F1F5F9;   /* slate-100  */
+  --color-foreground-muted:   #94A3B8;   /* slate-400  */
+  --color-foreground-subtle:  #64748B;   /* slate-500  */
+
+  /* shadcn/ui compat */
+  --color-card:               #1E293B;
+  --color-card-foreground:    #F1F5F9;
+  --color-popover:            #1E293B;
+  --color-popover-foreground: #F1F5F9;
+  --color-secondary:          #334155;
+  --color-secondary-foreground: #F1F5F9;
+  --color-muted:              #334155;
+  --color-muted-foreground:   #94A3B8;
+  --color-input:              #334155;
+  --color-ring:               #22C55E;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.30);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.40), 0 1px 2px rgba(0,0,0,0.20);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.40), 0 2px 4px rgba(0,0,0,0.20);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.50), 0 4px 8px rgba(0,0,0,0.20);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ── Base ─────────────────────────────────────────────────────────── */
+@layer base {
+  *, ::before, ::after {
+    box-sizing: border-box;
+    border-color: var(--color-border);
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--color-foreground);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ── Utilities ────────────────────────────────────────────────────── */
+@layer utilities {
+  .font-heading { font-family: var(--font-heading); }
+  .font-body    { font-family: var(--font-body); }
+
+  .card-soft {
+    background:    var(--color-surface);
+    border:        1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow:    var(--shadow-sm);
+    transition:    box-shadow 200ms ease;
+  }
+  .card-soft:hover { box-shadow: var(--shadow-md); }
+
+  .scrollbar-thin::-webkit-scrollbar       { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track  { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb  {
+    background:    var(--color-border-strong);
+    border-radius: 4px;
+  }
 }

@@ -22,7 +22,14 @@
 
 # misc
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 *.pem
+
+# Claude — skills y configuración local
+.claude/
 
 # debug
 npm-debug.log*
