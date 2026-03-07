@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\FoodController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\PlanMealController;
+use App\Http\Controllers\Api\RecipeController;
 use App\Http\Controllers\Api\UnitController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
@@ -23,9 +25,16 @@ Route::prefix('v1')->group(function () {
         'version' => '1.0.0',
     ]));
 
-    // ── Rutas protegidas por JWT ────────────────────────────────────────
-    // TODO: re-habilitar auth.jwt cuando se integre el Hub externo
-    // Route::middleware('auth.jwt')->group(function () {
+    // ── Autenticación ─────────────────────────────────────────────────
+    Route::post('/auth/login', [AuthController::class, 'login']);
+    Route::post('/auth/register', [AuthController::class, 'register']);
+
+    // ── Rutas protegidas ──────────────────────────────────────────────
+    Route::middleware('auth.api')->group(function () {
+        
+        Route::post('/auth/logout', [AuthController::class, 'logout']);
+        Route::get('/auth/me', [AuthController::class, 'me']);
+        Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
 
         // Usuarios — perfil nutricional
         Route::get('/users/{id}/requirements', [UserController::class, 'requirements']);
@@ -41,6 +50,14 @@ Route::prefix('v1')->group(function () {
         Route::put('/foods/{id}', [FoodController::class, 'update']);
         Route::delete('/foods/{id}', [FoodController::class, 'destroy']);
         Route::get('/foods/{id}/equivalences', [FoodController::class, 'equivalences']);
+
+        // Recetas
+        Route::get('/recipes', [RecipeController::class, 'index']);
+        Route::post('/recipes', [RecipeController::class, 'store']);
+        Route::get('/recipes/search', [RecipeController::class, 'search']);
+        Route::get('/recipes/{id}', [RecipeController::class, 'show']);
+        Route::put('/recipes/{id}', [RecipeController::class, 'update']);
+        Route::delete('/recipes/{id}', [RecipeController::class, 'destroy']);
 
         // Planes nutricionales
         Route::post('/plans', [PlanController::class, 'store']);
@@ -64,6 +81,5 @@ Route::prefix('v1')->group(function () {
             // Planes
             Route::get('/plans', [AdminUserController::class, 'plans']);
         });
-
-    // });
+    });
 });

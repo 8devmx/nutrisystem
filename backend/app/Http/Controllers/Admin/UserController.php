@@ -148,7 +148,7 @@ class UserController extends \App\Http\Controllers\Controller
             $query->where('user_id', $request->user_id);
         }
 
-        $plans = $query->latest()->paginate(15);
+        $plans = $query->withCount('meals')->latest()->paginate(15);
 
         return response()->json([
             'success' => true,

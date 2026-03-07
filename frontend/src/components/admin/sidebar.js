@@ -5,13 +5,14 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Users, UtensilsCrossed, CalendarDays,
-  ChevronLeft, ChevronRight, LayoutDashboard, Leaf,
+  ChevronLeft, ChevronRight, LayoutDashboard, Leaf, BookOpen,
 } from "lucide-react"
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/admin",       icon: LayoutDashboard, exact: true },
   { label: "Usuarios",  href: "/admin/users", icon: Users },
   { label: "Alimentos", href: "/admin/foods", icon: UtensilsCrossed },
+  { label: "Recetas",   href: "/admin/recipes", icon: BookOpen },
   { label: "Planes",    href: "/admin/plans", icon: CalendarDays },
 ]
 
@@ -130,10 +131,15 @@ export default function AdminSidebar() {
             e.currentTarget.style.color      = "var(--color-foreground-muted)"
           }}
         >
-          {collapsed
-            ? <ChevronRight className="h-4 w-4" />
-            : <ChevronLeft  className="h-4 w-4" />
-          }
+          <div className="flex items-center gap-2">
+            {collapsed
+              ? <ChevronRight className="h-4 w-4 flex-shrink-0" />
+              : <>
+                  <ChevronLeft className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-[10px] font-mono font-semibold tracking-wide opacity-50">v0.2.0</span>
+                </>
+            }
+          </div>
         </button>
       </div>
     </aside>

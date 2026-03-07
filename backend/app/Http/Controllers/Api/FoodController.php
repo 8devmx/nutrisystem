@@ -28,7 +28,8 @@ class FoodController extends BaseApiController
             });
         }
 
-        $foods = $query->with('equivalents.unit')->paginate(15);
+        $perPage = min((int) $request->get('per_page', 15), 500);
+        $foods = $query->with('equivalents.unit')->paginate($perPage);
 
         return $this->success($foods);
     }

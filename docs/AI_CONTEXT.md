@@ -310,6 +310,8 @@ frontend/src/
 | Fase 2 | NutritionService, middleware JWT, API REST | ✅ Completada |
 | Fase 3 | Frontend — UI/UX, dashboard, plan viewer | ✅ Completada |
 | Fase 4 | Documentación para IAs | ✅ Completada |
+| Fase 5 | Admin panel — CRUD completo (users, foods, plans) | ✅ Completada |
+| Fase 6 | Módulo de Recetas — backend + frontend admin | ✅ Completada |
 
 ---
 

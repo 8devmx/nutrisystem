@@ -123,4 +123,34 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Authentication Mode
+    |--------------------------------------------------------------------------
+    |
+    | This option controls the authentication mode for the API.
+    | Supported: "local" | "hub"
+    |
+    | - "local": Uses local API tokens stored in the database
+    | - "hub": Uses JWT tokens from the external Hub system
+    |
+    */
+
+    'auth_mode' => env('AUTH_MODE', 'local'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Hub Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configuration for external Hub integration.
+    | Only used when AUTH_MODE is set to "hub".
+    |
+    */
+
+    'hub' => [
+        'url' => env('HUB_URL', 'http://localhost:8001'),
+        'jwt_secret' => env('HUB_JWT_SECRET'),
+    ],
+
 ];

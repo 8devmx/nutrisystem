@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { AuthProvider } from "@/hooks/useAuth"
 
 // ── Theme Context ────────────────────────────────────────────────────────────
 
@@ -19,13 +20,11 @@ function ThemeProvider({ children }) {
   const [theme, setThemeState] = useState("system")
   const [resolvedTheme, setResolvedTheme] = useState("light")
 
-  // Lee del localStorage al montar
   useEffect(() => {
     const stored = localStorage.getItem("nutri-theme") ?? "system"
     setThemeState(stored)
   }, [])
 
-  // Aplica la clase .dark al <html> y escucha cambios del sistema
   useEffect(() => {
     const root = document.documentElement
 
@@ -39,7 +38,6 @@ function ThemeProvider({ children }) {
 
     applyTheme(theme)
 
-    // Si es "system", escucha cambios del OS
     if (theme === "system") {
       const mq = window.matchMedia("(prefers-color-scheme: dark)")
       const handler = () => applyTheme("system")
@@ -72,7 +70,9 @@ export function Providers({ children }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>{children}</ThemeProvider>
+      <AuthProvider>
+        <ThemeProvider>{children}</ThemeProvider>
+      </AuthProvider>
     </QueryClientProvider>
   )
 }

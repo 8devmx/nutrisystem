@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { api } from "@/lib/api"
 import ConfirmDialog from "@/components/admin/confirm-dialog"
+import { ViewSelector } from "@/components/admin/view-selector"
 import {
   Users, Plus, Search, Pencil, Trash2,
   ChevronLeft, ChevronRight, UserCircle2,
@@ -49,6 +50,7 @@ export default function AdminUsers() {
   const [confirmOpen, setConfirmOpen]   = useState(false)
   const [deletingId, setDeletingId]     = useState(null)
   const [deleting, setDeleting]         = useState(false)
+  const [view, setView]                 = useState("table")
   const [formData, setFormData] = useState({
     name: "", email: "", password: "",
     weight_kg: "", height_cm: "", age: "", sex: "", activity_factor: "",
@@ -128,15 +130,18 @@ export default function AdminUsers() {
             {total > 0 ? `${total} usuarios registrados` : "Gestiona perfiles y datos nutricionales"}
           </p>
         </div>
-        <button
-          onClick={() => { resetForm(); setIsDialogOpen(true) }}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer text-white transition-colors duration-150"
-          style={{ background: "var(--color-primary)" }}
-          onMouseEnter={e => e.currentTarget.style.background = "var(--color-primary-hover)"}
-          onMouseLeave={e => e.currentTarget.style.background = "var(--color-primary)"}
-        >
-          <Plus className="h-4 w-4" /> Nuevo usuario
-        </button>
+        <div className="flex items-center gap-3">
+          <ViewSelector view={view} onViewChange={setView} />
+          <button
+            onClick={() => { resetForm(); setIsDialogOpen(true) }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer text-white transition-colors duration-150"
+            style={{ background: "var(--color-primary)" }}
+            onMouseEnter={e => e.currentTarget.style.background = "var(--color-primary-hover)"}
+            onMouseLeave={e => e.currentTarget.style.background = "var(--color-primary)"}
+          >
+            <Plus className="h-4 w-4" /> Nuevo usuario
+          </button>
+        </div>
       </div>
 
       {/* ── Search ── */}
@@ -151,7 +156,7 @@ export default function AdminUsers() {
         />
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Table / Cards ── */}
       <div className="rounded-xl border overflow-hidden" style={{ ...S.surface, boxShadow: "var(--shadow-sm)" }}>
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -166,6 +171,70 @@ export default function AdminUsers() {
               onClick={() => { resetForm(); setIsDialogOpen(true) }}>
               Crear el primero
             </button>
+          </div>
+        ) : view === "cards" ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+            {users.map((user) => {
+              const act = ACTIVITY_META[user.activity_factor]
+              return (
+                <div
+                  key={user.id}
+                  className="rounded-lg border p-4 transition-colors duration-150"
+                  style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center"
+                      style={{ background: "var(--color-primary-light)" }}>
+                      <span className="text-sm font-bold" style={{ color: "var(--color-primary)" }}>
+                        {getInitials(user.name)}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold truncate" style={S.textMain}>{user.name}</p>
+                      <p className="text-xs truncate" style={S.textMuted}>{user.email}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t flex flex-wrap gap-1.5" style={{ borderColor: "var(--color-border)" }}>
+                    {[
+                      user.weight_kg && { Icon: Weight, label: `${user.weight_kg} kg` },
+                      user.height_cm && { Icon: Ruler,  label: `${user.height_cm} cm` },
+                      user.age       && { Icon: null,   label: `${user.age} años` },
+                    ].filter(Boolean).map(({ Icon, label }) => (
+                      <span key={label} className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                        style={{ background: "var(--color-surface-raised)", color: "var(--color-foreground-muted)" }}>
+                        {Icon && <Icon className="h-3 w-3" />}{label}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    {act ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                        style={{ background: act.color + "18", color: act.color }}>
+                        <Activity className="h-3 w-3" />{act.label}
+                      </span>
+                    ) : <span className="text-xs" style={S.textSub}>—</span>}
+                    
+                    <div className="flex gap-1">
+                      {[
+                        { Icon: Pencil, color: "#64748B", onClick: () => handleEdit(user) },
+                        { Icon: Trash2, color: "#DC2626", onClick: () => askDelete(user.id) },
+                      ].map(({ Icon, color, onClick }, i) => (
+                        <button key={i} onClick={onClick}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150"
+                          style={{ color: "var(--color-foreground-subtle)", background: "transparent" }}
+                          onMouseEnter={e => { e.currentTarget.style.background = color + "18"; e.currentTarget.style.color = color }}
+                          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--color-foreground-subtle)" }}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         ) : (
           <>
