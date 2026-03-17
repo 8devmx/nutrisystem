@@ -7,29 +7,70 @@ import { Input } from "@/components/ui/input"
 import ConfirmDialog from "@/components/admin/confirm-dialog"
 import { Search, Plus, BookOpen, Flame, Beef, Droplets, Wheat, Loader2, Trash2, Edit, Clock } from "lucide-react"
 
-export default function RecipesPage() {
-  const [recipes, setRecipes] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState("")
-  const [viewMode, setViewMode] = useState("table")
+const PER_PAGE_OPTIONS = [15, 50, 150, 500]
 
-  // Confirm dialog state
+export default function RecipesPage() {
+  const [recipes, setRecipes]     = useState([])
+  const [meta, setMeta]           = useState({ current_page: 1, last_page: 1, per_page: 15, total: 0 })
+  const [loading, setLoading]     = useState(true)
+  const [searchInput, setSearchInput] = useState("")   // texto visible en el input
+  const [search, setSearch]           = useState("")   // valor que dispara el fetch (debounced)
+  const [viewMode, setViewMode]   = useState("table")
+  const [perPage, setPerPage]     = useState(15)
+  const [page, setPage]           = useState(1)
+  const [sortBy, setSortBy]       = useState("title")    // 'title' | 'calories'
+  const [sortDir, setSortDir]     = useState("asc")       // 'asc' | 'desc'
+
   const [confirmDialog, setConfirmDialog] = useState({ open: false, id: null, loading: false })
+
+  // Debounce: espera 400ms después de que el usuario deja de escribir
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 400)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // Resetear a página 1 cuando cambia cualquier filtro u ordenamiento
+  useEffect(() => {
+    setPage(1)
+  }, [search, perPage, sortBy, sortDir])
 
   useEffect(() => {
     fetchRecipes()
-  }, [search])
+  }, [search, perPage, page, sortBy, sortDir])
 
   const fetchRecipes = async () => {
+    setLoading(true)
     try {
-      const params = search ? `?search=${encodeURIComponent(search)}` : ""
-      const response = await api.get(`/v1/recipes${params}`)
-      setRecipes(response.data.data || response.data)
+      const params = new URLSearchParams({
+        per_page: perPage,
+        page,
+        sort_by:  sortBy,
+        sort_dir: sortDir,
+        ...(search ? { search } : {}),
+      })
+      const response = await api.get(`/v1/recipes?${params}`)
+      setRecipes(response.data.data || [])
+      if (response.meta) setMeta(response.meta)
+      else if (response.data?.meta) setMeta(response.data.meta)
     } catch (error) {
       console.error("Error fetching recipes:", error)
     } finally {
       setLoading(false)
     }
+  }
+
+  const toggleSort = (field) => {
+    if (sortBy === field) {
+      setSortDir(d => d === "asc" ? "desc" : "asc")
+    } else {
+      setSortBy(field)
+      setSortDir("asc")
+    }
+  }
+
+  const SortIcon = ({ field }) => {
+    if (sortBy !== field) return <span className="ml-1 opacity-30">↕</span>
+    return <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>
   }
 
   const askDelete = (id) => {
@@ -91,17 +132,34 @@ export default function RecipesPage() {
         </Link>
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={S.textMuted} />
           <Input
             placeholder="Buscar recetas..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="pl-10"
             style={S.input}
           />
         </div>
+
+        {/* Selector de registros por página */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs" style={S.textMuted}>Mostrar</span>
+          <select
+            value={perPage}
+            onChange={(e) => setPerPage(Number(e.target.value))}
+            className="h-9 px-2 rounded-lg border text-sm"
+            style={S.input}
+          >
+            {PER_PAGE_OPTIONS.map(n => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+          <span className="text-xs" style={S.textMuted}>registros</span>
+        </div>
+
         <div className="flex gap-2">
           <button
             onClick={() => setViewMode("table")}
@@ -129,10 +187,26 @@ export default function RecipesPage() {
           <table className="w-full">
             <thead>
               <tr style={{ background: "var(--color-surface-raised)" }}>
-                <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>Nombre</th>
+                <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>
+                  <button
+                    onClick={() => toggleSort("title")}
+                    className="flex items-center cursor-pointer hover:opacity-80"
+                    style={S.textMuted}
+                  >
+                    Nombre <SortIcon field="title" />
+                  </button>
+                </th>
                 <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>Ingredientes</th>
                 <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>Porciones</th>
-                <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>Macros</th>
+                <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>
+                  <button
+                    onClick={() => toggleSort("calories")}
+                    className="flex items-center cursor-pointer hover:opacity-80"
+                    style={S.textMuted}
+                  >
+                    Macros (kcal) <SortIcon field="calories" />
+                  </button>
+                </th>
                 <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>Acciones</th>
               </tr>
             </thead>
@@ -288,7 +362,74 @@ export default function RecipesPage() {
         </div>
       )}
 
-      {recipes.length === 0 && (
+      {/* Paginador */}
+      {meta.last_page > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-xs" style={S.textMuted}>
+            Mostrando {((meta.current_page - 1) * meta.per_page) + 1}–{Math.min(meta.current_page * meta.per_page, meta.total)} de {meta.total} recetas
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(1)}
+              disabled={meta.current_page === 1}
+              className="px-2 py-1 rounded text-xs cursor-pointer disabled:opacity-30"
+              style={S.textMuted}
+            >
+              «
+            </button>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={meta.current_page === 1}
+              className="px-2 py-1 rounded text-xs cursor-pointer disabled:opacity-30"
+              style={S.textMuted}
+            >
+              ‹
+            </button>
+            {Array.from({ length: meta.last_page }, (_, i) => i + 1)
+              .filter(p => p === 1 || p === meta.last_page || Math.abs(p - meta.current_page) <= 1)
+              .reduce((acc, p, idx, arr) => {
+                if (idx > 0 && p - arr[idx - 1] > 1) acc.push("…")
+                acc.push(p)
+                return acc
+              }, [])
+              .map((p, i) =>
+                p === "…" ? (
+                  <span key={`ellipsis-${i}`} className="px-2 py-1 text-xs" style={S.textMuted}>…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    className="px-2.5 py-1 rounded text-xs cursor-pointer font-medium"
+                    style={meta.current_page === p
+                      ? { background: "var(--color-primary)", color: "#fff" }
+                      : S.textMuted}
+                  >
+                    {p}
+                  </button>
+                )
+              )
+            }
+            <button
+              onClick={() => setPage(p => Math.min(meta.last_page, p + 1))}
+              disabled={meta.current_page === meta.last_page}
+              className="px-2 py-1 rounded text-xs cursor-pointer disabled:opacity-30"
+              style={S.textMuted}
+            >
+              ›
+            </button>
+            <button
+              onClick={() => setPage(meta.last_page)}
+              disabled={meta.current_page === meta.last_page}
+              className="px-2 py-1 rounded text-xs cursor-pointer disabled:opacity-30"
+              style={S.textMuted}
+            >
+              »
+            </button>
+          </div>
+        </div>
+      )}
+
+      {recipes.length === 0 && !loading && (
         <div className="text-center py-12">
           <BookOpen className="h-12 w-12 mx-auto mb-4" style={S.textMuted} />
           <p style={S.textMuted}>No hay recetas todavía</p>

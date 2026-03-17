@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import {
   CalendarDays, ArrowLeft, Loader2, User, Target, Flame, Beef, Droplets, Wheat, Plus, Trash2,
 } from "lucide-react"
+import { useToast } from "@/components/providers"
 
 const DURATION_META = {
   weekly:   { label: "Semanal",   days: 7 },
@@ -57,6 +58,8 @@ const formatDateRangeSpanish = (startDate, days) => {
   }
 }
 
+const DRAFT_KEY = 'nutrisystem_plan_draft'
+
 export default function NewPlanPage() {
   const router = useRouter()
   const [users, setUsers] = useState([])
@@ -64,7 +67,9 @@ export default function NewPlanPage() {
   const [loading, setLoading] = useState(false)
   const [fetchingData, setFetchingData] = useState(true)
   const [selectedUser, setSelectedUser] = useState(null)
-  
+  const [hasDraft, setHasDraft] = useState(false)
+  const toast = useToast()
+
   const getToday = () => {
     const now = new Date()
     now.setMinutes(now.getMinutes() + now.getTimezoneOffset())
@@ -73,8 +78,8 @@ export default function NewPlanPage() {
     const day = String(now.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
   }
-  
-  const [formData, setFormData] = useState({
+
+  const FORM_DEFAULTS = {
     user_id: "",
     title: "",
     duration: "weekly",
@@ -89,10 +94,42 @@ export default function NewPlanPage() {
     protein_goal_g: "",
     carbs_goal_g: "",
     fat_goal_g: "",
-  })
+  }
+
+  const [formData, setFormData] = useState(FORM_DEFAULTS)
   const [meals, setMeals] = useState({})
-  const [foodSearch, setFoodSearch] = useState({})
+  const [units, setUnits] = useState([])                 // unidades con conversion_to_grams
+
+  // totalDays necesita estar disponible antes de las funciones que lo usan
+  const totalDays = DURATION_META[formData.duration]?.days || 7
+  const [foodSearch, setFoodSearch] = useState({})       // texto visible en cada input
+  const [foodResults, setFoodResults] = useState({})     // resultados del API por key
+  const [foodSearchTimers, setFoodSearchTimers] = useState({})
   const [recipes, setRecipes] = useState([])
+
+  // ── Persistencia en sessionStorage ──────────────────────────────────────
+
+  // Guardar borrador cada vez que cambia formData o meals
+  useEffect(() => {
+    // No guardar el estado inicial vacío
+    const isEmpty = !formData.user_id && !formData.title && Object.keys(meals).length === 0
+    if (isEmpty) return
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ formData, meals }))
+    } catch {}
+  }, [formData, meals])
+
+  const clearDraft = () => {
+    try { sessionStorage.removeItem(DRAFT_KEY) } catch {}
+    setHasDraft(false)
+  }
+
+  const discardDraft = () => {
+    clearDraft()
+    setFormData(FORM_DEFAULTS)
+    setMeals({})
+    setSelectedUser(null)
+  }
 
   useEffect(() => {
     fetchData()
@@ -100,14 +137,16 @@ export default function NewPlanPage() {
 
   const fetchData = async () => {
     try {
-      const [usersRes, foodsRes, recipesRes] = await Promise.all([
+      const [usersRes, foodsRes, recipesRes, unitsRes] = await Promise.all([
         api.get("/v1/admin/users?per_page=100"),
         api.get("/v1/foods?per_page=200"),
         api.get("/v1/recipes?per_page=100"),
+        api.get("/v1/units"),
       ])
       setUsers(usersRes.data.data || usersRes.data)
       setFoods(foodsRes.data.data || foodsRes.data)
-      
+      setUnits(unitsRes.data.data || unitsRes.data || [])
+
       const recipesData = recipesRes.data.data || recipesRes.data
       const recipesWithIngredients = await Promise.all(
         recipesData.map(async (r) => {
@@ -120,6 +159,22 @@ export default function NewPlanPage() {
         })
       )
       setRecipes(recipesWithIngredients)
+
+      // Restaurar borrador si existe
+      try {
+        const raw = sessionStorage.getItem(DRAFT_KEY)
+        if (raw) {
+          const { formData: savedForm, meals: savedMeals } = JSON.parse(raw)
+          setFormData(savedForm)
+          setMeals(savedMeals || {})
+          // Restaurar selectedUser para que funcionen los datos antropométricos
+          const allUsers = usersRes.data.data || usersRes.data
+          const match = allUsers.find(u => String(u.id) === String(savedForm.user_id))
+          if (match) setSelectedUser(match)
+          setHasDraft(true)
+        }
+      } catch {}
+
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
@@ -173,7 +228,7 @@ export default function NewPlanPage() {
     const activity = formData.activity_factor
 
     if (!weight || !height || !age || !activity) {
-      alert("Necesitas completar los datos del usuario: peso, estatura, edad y sexo")
+      toast.warning("Necesitas completar peso, estatura, edad y sexo para calcular los macros")
       return
     }
 
@@ -214,40 +269,76 @@ export default function NewPlanPage() {
     }
   }
 
-  const addFoodToMeal = (day, moment, foodId) => {
-    const key = `${day}-${moment}`
-    const food = foods.find(f => f.id === parseInt(foodId))
-    if (!food) return
+  // inputKey = `${day}-${moment}-${idx}` — único por fila
+  const searchFoodsForKey = (inputKey, query) => {
+    setFoodSearchTimers(prev => {
+      if (prev[inputKey]) clearTimeout(prev[inputKey])
+      const timer = setTimeout(async () => {
+        if (query.trim().length < 1) {
+          setFoodResults(prev2 => ({ ...prev2, [inputKey]: [] }))
+          return
+        }
+        try {
+          const res = await api.get(`/v1/foods?search=${encodeURIComponent(query)}&per_page=8`)
+          // El API ya excluye soft-deleted via SoftDeletes del modelo
+          const foodItems = (res.data?.data || res.data || []).map(f => ({ ...f, type: 'food' }))
+          const recipeItems = recipes
+            .filter(r => r.title?.toLowerCase().includes(query.toLowerCase()))
+            .slice(0, 3)
+            .map(r => ({ ...r, type: 'recipe' }))
+          setFoodResults(prev2 => ({ ...prev2, [inputKey]: [...foodItems, ...recipeItems] }))
+        } catch {
+          setFoodResults(prev2 => ({ ...prev2, [inputKey]: [] }))
+        }
+      }, 300)
+      return { ...prev, [inputKey]: timer }
+    })
+  }
 
-    setMeals(prev => ({
-      ...prev,
-      [key]: [...(prev[key] || []), { food_id: food.id, food, quantity: 100, unit: "g" }]
-    }))
+  const addFoodToMeal = (day, moment) => {
+    const newItem = { food_id: "", food: null, quantity: "", unit_id: "" }
+    setMeals(prev => {
+      const next = { ...prev }
+      next[`${day}-${moment}`] = [...(prev[`${day}-${moment}`] || []), newItem]
+      // Precargar en los demás días solo cuando se agrega en el día 1
+      if (parseInt(day) === 1) {
+        for (let d = 2; d <= totalDays; d++) {
+          const k = `${d}-${moment}`
+          next[k] = [...(prev[k] || []), { ...newItem }]
+        }
+      }
+      return next
+    })
   }
 
   const addRecipeToMeal = (day, moment, recipe) => {
-    const key = `${day}-${moment}`
     const recipeIngredients = recipe.ingredients || []
-
-    // Agrega la receta como un único item agrupador con sus ingredientes dentro
     const recipeItem = {
       is_recipe: true,
       recipe_id: recipe.id,
       recipe_title: recipe.title,
       expanded: true,
       ingredients: recipeIngredients.map(ing => ({
-        food_id: ing.food_id,
-        food: ing.food,
+        food_id:  ing.food_id,
+        food:     ing.food,
         quantity: ing.quantity || 100,
-        unit: ing.unit?.abbreviation || "g",
-        unit_id: ing.unit_id,
+        unit:     ing.unit,
+        unit_id:  ing.unit_id,
       }))
     }
 
-    setMeals(prev => ({
-      ...prev,
-      [key]: [...(prev[key] || []), recipeItem]
-    }))
+    setMeals(prev => {
+      const next = { ...prev }
+      next[`${day}-${moment}`] = [...(prev[`${day}-${moment}`] || []), recipeItem]
+      // Precargar en los demás días solo cuando se agrega en el día 1
+      if (parseInt(day) === 1) {
+        for (let d = 2; d <= totalDays; d++) {
+          const k = `${d}-${moment}`
+          next[k] = [...(prev[k] || []), { ...recipeItem, expanded: false }]
+        }
+      }
+      return next
+    })
   }
 
   const toggleRecipeExpanded = (day, moment, idx) => {
@@ -260,16 +351,36 @@ export default function NewPlanPage() {
   }
 
   const updateMealFood = (day, moment, index, field, value) => {
-    const key = `${day}-${moment}`
     setMeals(prev => {
-      const updated = [...(prev[key] || [])]
+      const next = { ...prev }
+      // Actualizar el día actual
+      const updated = [...(prev[`${day}-${moment}`] || [])]
       if (field === 'food_id') {
         const food = foods.find(f => f.id === parseInt(value))
         updated[index] = { ...updated[index], food_id: value, food }
       } else {
         updated[index] = { ...updated[index], [field]: value }
       }
-      return { ...prev, [key]: updated }
+      next[`${day}-${moment}`] = updated
+
+      // Si la edición es en el día 1, replicar solo el campo modificado en los demás días
+      // (sin sobreescribir cambios que el usuario haya hecho manualmente en otros días)
+      if (parseInt(day) === 1) {
+        for (let d = 2; d <= totalDays; d++) {
+          const k = `${d}-${moment}`
+          const otherDay = [...(prev[k] || [])]
+          if (index < otherDay.length) {
+            if (field === 'food_id') {
+              const food = foods.find(f => f.id === parseInt(value))
+              otherDay[index] = { ...otherDay[index], food_id: value, food }
+            } else {
+              otherDay[index] = { ...otherDay[index], [field]: value }
+            }
+            next[k] = otherDay
+          }
+        }
+      }
+      return next
     })
   }
 
@@ -281,52 +392,87 @@ export default function NewPlanPage() {
     }))
   }
 
+  // Resuelve el objeto unit completo a partir de un unit_id o del propio objeto
+  const resolveUnit = (unitOrId) => {
+    if (!unitOrId) return null
+    if (typeof unitOrId === 'object') return unitOrId          // ya es el objeto completo
+    return units.find(u => u.id === parseInt(unitOrId)) || null // buscar por id
+  }
+
+  // Convierte cantidad + unidad a gramos usando conversion_to_grams
+  const toGrams = (quantity, unitOrId) => {
+    const unit = resolveUnit(unitOrId)
+    const conversion = parseFloat(unit?.conversion_to_grams ?? 1)
+    return parseFloat(quantity) * conversion
+  }
+
   const calcItemMacros = (item) => {
     // item puede ser un alimento suelto o una receta agrupada
     if (item.is_recipe) {
       return (item.ingredients || []).reduce((acc, ing) => {
         if (!ing.food || !ing.quantity) return acc
-        const qty = parseFloat(ing.quantity)
-        acc.calories += (ing.food.calories_per_100g * qty) / 100
-        acc.protein  += (ing.food.protein_g  * qty) / 100
-        acc.carbs    += (ing.food.carbs_g    * qty) / 100
-        acc.fat      += (ing.food.fat_g      * qty) / 100
+        // ing.unit es el objeto completo (viene del API de recetas)
+        const grams = toGrams(ing.quantity, ing.unit)
+        acc.calories += (ing.food.calories_per_100g * grams) / 100
+        acc.protein  += (ing.food.protein_g  * grams) / 100
+        acc.carbs    += (ing.food.carbs_g    * grams) / 100
+        acc.fat      += (ing.food.fat_g      * grams) / 100
         return acc
       }, { calories: 0, protein: 0, carbs: 0, fat: 0 })
     }
+    // Alimento suelto: usa unit_id para resolver la unidad desde el array units
     if (!item.food || !item.quantity) return { calories: 0, protein: 0, carbs: 0, fat: 0 }
-    const qty = parseFloat(item.quantity)
+    const grams = toGrams(item.quantity, item.unit_id)
     return {
-      calories: (item.food.calories_per_100g * qty) / 100,
-      protein:  (item.food.protein_g  * qty) / 100,
-      carbs:    (item.food.carbs_g    * qty) / 100,
-      fat:      (item.food.fat_g      * qty) / 100,
+      calories: (item.food.calories_per_100g * grams) / 100,
+      protein:  (item.food.protein_g  * grams) / 100,
+      carbs:    (item.food.carbs_g    * grams) / 100,
+      fat:      (item.food.fat_g      * grams) / 100,
     }
   }
 
   const calculateMealMacros = (day, moment) => {
+    // day y moment ya vienen separados correctamente, no necesitan split
     const key = `${day}-${moment}`
     const dayMeals = meals[key] || []
     const totals = dayMeals.reduce((acc, item) => {
       const m = calcItemMacros(item)
-      acc.calories += m.calories; acc.protein += m.protein
-      acc.carbs += m.carbs; acc.fat += m.fat
+      acc.calories += m.calories
+      acc.protein  += m.protein
+      acc.carbs    += m.carbs
+      acc.fat      += m.fat
       return acc
     }, { calories: 0, protein: 0, carbs: 0, fat: 0 })
-    return { calories: Math.round(totals.calories), protein: Math.round(totals.protein), carbs: Math.round(totals.carbs), fat: Math.round(totals.fat) }
+    return {
+      calories: Math.round(totals.calories),
+      protein:  Math.round(totals.protein),
+      carbs:    Math.round(totals.carbs),
+      fat:      Math.round(totals.fat),
+    }
   }
 
-  const calculateTotalMacros = () => {
+  // Resumen del día 1 como referencia diaria.
+  // Las keys tienen formato `${day}-${moment}` donde moment puede tener guiones
+  // (morning_snack, afternoon_snack), por eso separamos solo por el primer '-'.
+  const calculateDayMacros = (targetDay) => {
     let totals = { calories: 0, protein: 0, carbs: 0, fat: 0 }
     Object.keys(meals).forEach(key => {
-      const [day, moment] = key.split('-')
+      const dashIdx = key.indexOf('-')
+      const day = key.slice(0, dashIdx)
+      const moment = key.slice(dashIdx + 1)
+      if (parseInt(day) !== targetDay) return
       const macros = calculateMealMacros(day, moment)
       totals.calories += macros.calories
-      totals.protein += macros.protein
-      totals.carbs += macros.carbs
-      totals.fat += macros.fat
+      totals.protein  += macros.protein
+      totals.carbs    += macros.carbs
+      totals.fat      += macros.fat
     })
-    return totals
+    return {
+      calories: Math.round(totals.calories),
+      protein:  Math.round(totals.protein),
+      carbs:    Math.round(totals.carbs),
+      fat:      Math.round(totals.fat),
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -381,17 +527,18 @@ export default function NewPlanPage() {
         await Promise.all(mealsToSave.map(meal => api.post(`/v1/plans/${planId}/meals`, meal)))
       }
 
+      clearDraft()
+      toast.success("Plan creado correctamente")
       router.push("/admin/plans")
     } catch (error) {
-      alert(error.message || "Error al crear plan")
+      toast.error(error.message || "Error al crear plan")
     } finally {
       setLoading(false)
     }
   }
 
   const duration = DURATION_META[formData.duration]
-  const totalDays = duration?.days || 7
-  const totalMacros = calculateTotalMacros()
+  const day1Macros = calculateDayMacros(1)
   const activity = ACTIVITY_META[formData.activity_factor]
 
   const S = {
@@ -422,6 +569,30 @@ export default function NewPlanPage() {
           <p className="text-sm mt-0.5" style={S.textMuted}>Crea un plan de alimentación personalizado</p>
         </div>
       </div>
+
+      {/* Banner de borrador guardado */}
+      {hasDraft && (
+        <div
+          className="flex items-center justify-between px-4 py-3 rounded-xl border text-sm"
+          style={{ background: "#F59E0B18", borderColor: "#F59E0B40", color: "#92400E" }}
+        >
+          <div className="flex items-center gap-2">
+            <span>⚠️</span>
+            <span className="font-medium">Tienes un borrador guardado.</span>
+            <span style={{ color: "#B45309" }}>Tu avance fue restaurado automáticamente.</span>
+          </div>
+          <button
+            type="button"
+            onClick={discardDraft}
+            className="text-xs font-medium px-3 py-1 rounded-lg cursor-pointer transition-colors"
+            style={{ background: "#F59E0B30", color: "#92400E" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#F59E0B50"}
+            onMouseLeave={e => e.currentTarget.style.background = "#F59E0B30"}
+          >
+            Descartar borrador
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Datos del plan */}
@@ -663,8 +834,6 @@ export default function NewPlanPage() {
                   const key = `${day}-${moment.key}`
                   const dayMeals = meals[key] || []
                   const macros = calculateMealMacros(day, moment.key)
-                  const searchKey = `${day}-${moment.key}`
-                  const suggestions = foodSearch[searchKey] || []
                   
                   return (
                     <div key={moment.key} className="p-3 rounded-lg" style={{ background: "var(--color-surface-raised)" }}>
@@ -709,7 +878,7 @@ export default function NewPlanPage() {
                                   <div key={iidx} className="flex items-center gap-2 text-xs" style={{ color: "var(--color-foreground-muted)" }}>
                                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#8B5CF6" }} />
                                     <span className="flex-1 truncate">{ing.food?.name || "Alimento"}</span>
-                                    <span className="text-[10px]">{ing.quantity} {ing.unit}</span>
+                                    <span className="text-[10px]">{ing.quantity} {ing.unit?.abbreviation || ing.unit}</span>
                                   </div>
                                 ))}
                               </div>
@@ -719,54 +888,70 @@ export default function NewPlanPage() {
                           // ── Alimento suelto ──
                           <div key={idx} className="flex items-center gap-2 mb-2">
                             <div className="relative flex-1">
-                              <input
-                                type="text"
-                                value={item.food?.name || ""}
-                                onChange={(e) => {
-                                  const q = e.target.value.toLowerCase()
-                                  const filteredFoods = foods.filter(f => f.name.toLowerCase().includes(q)).slice(0, 3).map(f => ({ ...f, type: 'food' }))
-                                  const filteredRecipes = recipes.filter(r => r.title.toLowerCase().includes(q)).slice(0, 2).map(r => ({ ...r, type: 'recipe' }))
-                                  setFoodSearch(prev => ({ ...prev, [searchKey]: [...filteredFoods, ...filteredRecipes] }))
-                                  updateMealFood(day, moment.key, idx, 'food_id', "")
-                                }}
-                                onFocus={(e) => {
-                                  const q = e.target.value.toLowerCase()
-                                  const filteredFoods = foods.filter(f => f.name.toLowerCase().includes(q)).slice(0, 3).map(f => ({ ...f, type: 'food' }))
-                                  const filteredRecipes = recipes.filter(r => r.title.toLowerCase().includes(q)).slice(0, 2).map(r => ({ ...r, type: 'recipe' }))
-                                  setFoodSearch(prev => ({ ...prev, [searchKey]: [...filteredFoods, ...filteredRecipes] }))
-                                }}
-                                onBlur={() => setTimeout(() => setFoodSearch(prev => ({ ...prev, [searchKey]: [] })), 200)}
-                                className="w-full h-8 px-2 rounded border text-xs"
-                                style={S.input}
-                                placeholder="Buscar alimento o receta..."
-                              />
-                              {suggestions.length > 0 && (
-                                <div className="absolute z-10 w-full mt-1 border rounded-lg shadow-lg max-h-48 overflow-auto" style={S.surface}>
-                                  {suggestions.map((sug) => (
-                                    <div
-                                      key={sug.type === 'recipe' ? `r-${sug.id}` : sug.id}
-                                      className="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
-                                      style={{ color: "var(--color-foreground)" }}
-                                      onMouseEnter={e => e.currentTarget.style.background = "var(--color-surface-raised)"}
-                                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                                      onMouseDown={() => {
-                                        if (sug.type === 'recipe') {
-                                          addRecipeToMeal(day, moment.key, sug)
-                                          removeMealFood(day, moment.key, idx) // quitar el placeholder vacío
-                                        } else {
-                                          updateMealFood(day, moment.key, idx, 'food_id', sug.id)
-                                        }
-                                        setFoodSearch(prev => ({ ...prev, [searchKey]: [] }))
+                              {(() => {
+                                // inputKey único por fila: evita que los dropdowns se mezclen
+                                const inputKey = `${day}-${moment.key}-${idx}`
+                                return (
+                                  <>
+                                    <input
+                                      type="text"
+                                      value={foodSearch[inputKey] ?? (item.food?.name || "")}
+                                      onChange={(e) => {
+                                        const val = e.target.value
+                                        setFoodSearch(prev => ({ ...prev, [inputKey]: val }))
+                                        if (item.food_id) updateMealFood(day, moment.key, idx, 'food_id', "")
+                                        searchFoodsForKey(inputKey, val)
                                       }}
-                                    >
-                                      <span>{sug.type === 'recipe' ? sug.title : sug.name}</span>
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded ml-2" style={sug.type === 'recipe' ? { background: "#8B5CF618", color: "#8B5CF6" } : { background: "#16A34A18", color: "#16A34A" }}>
-                                        {sug.type === 'recipe' ? 'Receta' : 'Alimento'}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
+                                      onFocus={(e) => {
+                                        const val = e.target.value
+                                        if (val.trim().length > 0) searchFoodsForKey(inputKey, val)
+                                      }}
+                                      onBlur={() => {
+                                        setTimeout(() => {
+                                          setFoodResults(prev => ({ ...prev, [inputKey]: [] }))
+                                          if (!item.food_id) {
+                                            setFoodSearch(prev => ({ ...prev, [inputKey]: "" }))
+                                          }
+                                        }, 200)
+                                      }}
+                                      className="w-full h-8 px-2 rounded border text-xs"
+                                      style={{
+                                        ...S.input,
+                                        borderColor: item.food_id ? "var(--color-primary)" : "var(--color-border)",
+                                      }}
+                                      placeholder="Busca los alimentos..."
+                                    />
+                                    {(foodResults[inputKey] || []).length > 0 && (
+                                      <div className="absolute z-10 w-full mt-1 border rounded-lg shadow-lg max-h-48 overflow-auto" style={S.surface}>
+                                        {(foodResults[inputKey] || []).map((sug) => (
+                                          <div
+                                            key={sug.type === 'recipe' ? `r-${sug.id}` : sug.id}
+                                            className="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
+                                            style={{ color: "var(--color-foreground)" }}
+                                            onMouseEnter={e => e.currentTarget.style.background = "var(--color-surface-raised)"}
+                                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                                            onMouseDown={() => {
+                                              if (sug.type === 'recipe') {
+                                                addRecipeToMeal(day, moment.key, sug)
+                                                removeMealFood(day, moment.key, idx)
+                                              } else {
+                                                updateMealFood(day, moment.key, idx, 'food_id', sug.id)
+                                                setFoodSearch(prev => ({ ...prev, [inputKey]: sug.name }))
+                                              }
+                                              setFoodResults(prev => ({ ...prev, [inputKey]: [] }))
+                                            }}
+                                          >
+                                            <span>{sug.type === 'recipe' ? sug.title : sug.name}</span>
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded ml-2" style={sug.type === 'recipe' ? { background: "#8B5CF618", color: "#8B5CF6" } : { background: "#16A34A18", color: "#16A34A" }}>
+                                              {sug.type === 'recipe' ? 'Receta' : 'Alimento'}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </>
+                                )
+                              })()}
                             </div>
                             <input
                               type="number"
@@ -792,7 +977,7 @@ export default function NewPlanPage() {
 
                       <button
                         type="button"
-                        onClick={() => addFoodToMeal(day, moment.key, foods[0]?.id)}
+                        onClick={() => addFoodToMeal(day, moment.key)}
                         className="flex items-center gap-1 text-xs mt-2 cursor-pointer"
                         style={{ color: "var(--color-primary)" }}
                       >
@@ -806,26 +991,35 @@ export default function NewPlanPage() {
           ))}
         </div>
 
-        {/* Resumen total */}
-        {Object.keys(meals).length > 0 && (
+        {/* Resumen diario — día 1 como referencia */}
+        {Object.keys(meals).some(k => k.startsWith('1-')) && (
           <div className="rounded-xl border p-6" style={S.surface}>
-            <h2 className="text-lg font-semibold mb-4" style={S.textMain}>Resumen nutricional total</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold" style={S.textMain}>Resumen nutricional diario</h2>
+              <span className="text-xs px-2 py-1 rounded-lg" style={{ background: "var(--color-surface-raised)", color: "var(--color-foreground-muted)" }}>
+                Basado en el Día 1
+              </span>
+            </div>
             <div className="grid grid-cols-4 gap-4">
               <div className="text-center p-4 rounded-lg" style={{ background: "#F9731618" }}>
-                <p className="text-2xl font-bold" style={{ color: "#F97316" }}>{totalMacros.calories}</p>
-                <p className="text-xs" style={S.textMuted}>Calorías</p>
+                <Flame className="h-4 w-4 mx-auto mb-1" style={{ color: "#F97316" }} />
+                <p className="text-2xl font-bold" style={{ color: "#F97316" }}>{day1Macros.calories}</p>
+                <p className="text-xs mt-0.5" style={S.textMuted}>kcal</p>
               </div>
               <div className="text-center p-4 rounded-lg" style={{ background: "#3B82F618" }}>
-                <p className="text-2xl font-bold" style={{ color: "#3B82F6" }}>{totalMacros.protein}g</p>
-                <p className="text-xs" style={S.textMuted}>Proteína</p>
+                <Beef className="h-4 w-4 mx-auto mb-1" style={{ color: "#3B82F6" }} />
+                <p className="text-2xl font-bold" style={{ color: "#3B82F6" }}>{day1Macros.protein}g</p>
+                <p className="text-xs mt-0.5" style={S.textMuted}>Proteína</p>
               </div>
               <div className="text-center p-4 rounded-lg" style={{ background: "#F59E0B18" }}>
-                <p className="text-2xl font-bold" style={{ color: "#F59E0B" }}>{totalMacros.carbs}g</p>
-                <p className="text-xs" style={S.textMuted}>Carbohidratos</p>
+                <Wheat className="h-4 w-4 mx-auto mb-1" style={{ color: "#F59E0B" }} />
+                <p className="text-2xl font-bold" style={{ color: "#F59E0B" }}>{day1Macros.carbs}g</p>
+                <p className="text-xs mt-0.5" style={S.textMuted}>Carbohidratos</p>
               </div>
-              <div className="text-center p-4 rounded-lg" style={{ background: "#F9731618" }}>
-                <p className="text-2xl font-bold" style={{ color: "#F97316" }}>{totalMacros.fat}g</p>
-                <p className="text-xs" style={S.textMuted}>Grasa</p>
+              <div className="text-center p-4 rounded-lg" style={{ background: "#EF444418" }}>
+                <Droplets className="h-4 w-4 mx-auto mb-1" style={{ color: "#EF4444" }} />
+                <p className="text-2xl font-bold" style={{ color: "#EF4444" }}>{day1Macros.fat}g</p>
+                <p className="text-xs mt-0.5" style={S.textMuted}>Grasa</p>
               </div>
             </div>
           </div>
@@ -833,15 +1027,14 @@ export default function NewPlanPage() {
 
         {/* Botones de acción */}
         <div className="flex justify-end gap-3">
-          <Link href="/admin/plans">
-            <button
-              type="button"
-              className="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer border"
-              style={{ borderColor: "var(--color-border)", color: "var(--color-foreground-muted)" }}
-            >
-              Cancelar
-            </button>
-          </Link>
+          <button
+            type="button"
+            onClick={() => { clearDraft(); router.push("/admin/plans") }}
+            className="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer border"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-foreground-muted)" }}
+          >
+            Cancelar
+          </button>
           <button
             type="submit"
             disabled={loading}

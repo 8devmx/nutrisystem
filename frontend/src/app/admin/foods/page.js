@@ -437,7 +437,10 @@ function OpenFoodFactsModal({ open, onClose, onSelect }) {
 // Página principal
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useToast } from "@/components/providers"
+
 export default function AdminFoods() {
+  const toast = useToast()
   const [foods, setFoods]             = useState([])
   const [loading, setLoading]         = useState(true)
   const [search, setSearch]           = useState("")
@@ -493,7 +496,7 @@ export default function AdminFoods() {
       resetForm()
       fetchFoods()
     } catch (error) {
-      alert(error.message || "Error al guardar alimento")
+      toast.error(error.message || "Error al guardar alimento")
     }
   }
 
@@ -516,7 +519,7 @@ export default function AdminFoods() {
       setConfirmOpen(false)
       fetchFoods()
     } catch (error) {
-      alert(error.message || "Error al eliminar alimento")
+      toast.error(error.message || "Error al eliminar alimento")
     } finally {
       setDeleting(false); setDeletingId(null)
     }
@@ -552,7 +555,7 @@ export default function AdminFoods() {
       await Promise.all(ids.map(id => api.delete(`/v1/foods/${id}`)))
       setConfirmOpen(false); setSelectedIds(new Set()); fetchFoods()
     } catch (error) {
-      alert(error.message || "Error al eliminar alimentos")
+      toast.error(error.message || "Error al eliminar alimentos")
     } finally {
       setBulkDeleting(false); setDeletingId(null)
     }

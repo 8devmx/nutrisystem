@@ -7,6 +7,7 @@ import { api } from "@/lib/api"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ArrowLeft, Loader2, Plus, Trash2, BookOpen, Flame, Beef, Wheat, Droplets } from "lucide-react"
+import { useToast } from "@/components/providers"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IngredientRow — componente aislado para que el estado del buscador
@@ -166,7 +167,7 @@ function IngredientRow({ ing, units, onUpdate, onRemove, S, apiGet }) {
         value={ing.quantity}
         onChange={e => onUpdate("quantity", e.target.value)}
         placeholder="Cant"
-        min="0.01"
+        min="0"
         step="any"
         className="w-20 h-10 px-2 rounded-lg border text-sm"
         style={S.input}
@@ -197,6 +198,7 @@ export default function RecipeFormPage() {
   const [loading, setLoading] = useState(false)
   const [fetchingData, setFetchingData] = useState(true)
   const [units, setUnits] = useState([])
+  const toast = useToast()
 
   const [formData, setFormData] = useState({
     title: "",
@@ -277,9 +279,9 @@ export default function RecipeFormPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    const invalid = ingredients.some(ing => !ing.food_id || !ing.unit_id || !ing.quantity)
+    const invalid = ingredients.some(ing => !ing.food_id || !ing.unit_id || ing.quantity === "" || ing.quantity === null || ing.quantity === undefined)
     if (invalid) {
-      alert("Todos los ingredientes deben tener alimento, unidad y cantidad.")
+      toast.warning("Todos los ingredientes deben tener alimento, unidad y cantidad.")
       return
     }
     setLoading(true)
@@ -292,7 +294,7 @@ export default function RecipeFormPage() {
         ingredients: ingredients.map(ing => ({
           food_id:  Number(ing.food_id),
           unit_id:  Number(ing.unit_id),
-          quantity: parseFloat(parseFloat(ing.quantity).toFixed(2)),
+          quantity: parseFloat(parseFloat(ing.quantity ?? 0).toFixed(2)),
         })),
       }
 
@@ -301,16 +303,14 @@ export default function RecipeFormPage() {
       } else {
         await api.post("/v1/recipes", payload)
       }
+      toast.success(recipeId ? "Receta actualizada" : "Receta creada")
       router.push("/admin/recipes")
     } catch (err) {
       if (err.errors) {
-        // Mostrar el primer error de validación de cada campo
-        const detalles = Object.entries(err.errors)
-          .map(([campo, msgs]) => `• ${campo}: ${msgs[0]}`)
-          .join("\n")
-        alert(`Error de validación:\n${detalles}`)
+        const primer = Object.values(err.errors)[0]?.[0]
+        toast.error(primer || "Error de validación", "Error al guardar")
       } else {
-        alert(err.message || "Error al guardar receta")
+        toast.error(err.message || "Error al guardar receta")
       }
     } finally {
       setLoading(false)

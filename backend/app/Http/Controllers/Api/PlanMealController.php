@@ -30,7 +30,7 @@ class PlanMealController extends BaseApiController
                     'breakfast', 'morning_snack', 'lunch', 'afternoon_snack', 'dinner',
                 ])],
                 'food_id'      => 'required|exists:foods,id',
-                'quantity'     => 'required|numeric|min:0.01',
+                'quantity'     => 'required|numeric|min:0',
                 'unit_id'      => 'required|exists:units,id',
             ]);
 
@@ -60,7 +60,7 @@ class PlanMealController extends BaseApiController
 
         try {
             $validated = $request->validate([
-                'quantity' => 'sometimes|numeric|min:0.01',
+                'quantity' => 'sometimes|numeric|min:0',
                 'unit_id'  => 'sometimes|exists:units,id',
             ]);
 

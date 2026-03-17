@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { api, planMealsApi, unitsApi } from "@/lib/api"
+import { useToast } from "@/components/providers"
 import ConfirmDialog from "@/components/admin/confirm-dialog"
 import {
   ChevronLeft, Plus, Trash2, Search, UtensilsCrossed,
@@ -60,6 +61,7 @@ export default function PlanDetail() {
   const [confirmOpen, setConfirmOpen]     = useState(false)
   const [pendingMealId, setPendingMealId] = useState(null)
   const [deleting, setDeleting]           = useState(false)
+  const toast = useToast()
 
   // ── Carga inicial ──────────────────────────────────────────────────────────
 
@@ -120,7 +122,7 @@ export default function PlanDetail() {
       })
       setDialogOpen(false)
       await fetchPlan()
-    } catch (e) { alert(e.message || "Error al agregar comida") }
+    } catch (e) { toast.error(e.message || "Error al agregar comida") }
     finally     { setSaving(false) }
   }
 
@@ -136,7 +138,7 @@ export default function PlanDetail() {
       setConfirmOpen(false)
       await fetchPlan()
     } catch (e) {
-      alert(e.message || "Error al eliminar")
+      toast.error(e.message || "Error al eliminar")
     } finally {
       setDeleting(false)
       setPendingMealId(null)

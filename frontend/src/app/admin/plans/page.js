@@ -16,7 +16,10 @@ const DURATION_META = {
   monthly:  { label: "Mensual",   color: "#16A34A", days: 30 },
 }
 
+import { useToast } from "@/components/providers"
+
 export default function AdminPlans() {
+  const toast = useToast()
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -55,7 +58,7 @@ export default function AdminPlans() {
       setConfirmOpen(false)
       fetchPlans()
     } catch (error) {
-      alert(error.message || "Error al eliminar plan")
+      toast.error(error.message || "Error al eliminar plan")
     } finally {
       setDeleting(false)
       setDeletingId(null)

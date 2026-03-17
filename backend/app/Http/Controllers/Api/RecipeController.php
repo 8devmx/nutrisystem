@@ -18,31 +18,49 @@ class RecipeController extends BaseApiController
             $query->where('title', 'like', '%' . $request->search . '%');
         }
 
-        $perPage = $request->get('per_page', 15);
-        $recipes = $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $perPage = min((int) $request->get('per_page', 15), 500);
+        $sortBy  = in_array($request->get('sort_by'), ['title', 'calories']) ? $request->get('sort_by') : 'title';
+        $sortDir = $request->get('sort_dir', 'asc') === 'desc' ? 'desc' : 'asc';
+
+        // Ordenamiento por título directo en SQL
+        if ($sortBy === 'title') {
+            $query->orderBy('title', $sortDir);
+        } else {
+            $query->orderBy('title', 'asc'); // orden base; se reordena en memoria por calorías
+        }
+
+        $recipes = $query->paginate($perPage);
 
         $enriched = $recipes->map(function ($recipe) {
             $macros = $recipe->calculateMacros();
             return [
-                'id' => $recipe->id,
-                'title' => $recipe->title,
-                'description' => $recipe->description,
-                'servings' => $recipe->servings,
-                'prep_time_minutes' => $recipe->prep_time_minutes,
-                'ingredients_count' => $recipe->ingredients->count(),
-                'macros' => $macros,
-                'created_at' => $recipe->created_at,
-                'updated_at' => $recipe->updated_at,
+                'id'               => $recipe->id,
+                'title'            => $recipe->title,
+                'description'      => $recipe->description,
+                'servings'         => $recipe->servings,
+                'prep_time_minutes'=> $recipe->prep_time_minutes,
+                'ingredients_count'=> $recipe->ingredients->count(),
+                'macros'           => $macros,
+                'created_at'       => $recipe->created_at,
+                'updated_at'       => $recipe->updated_at,
             ];
         });
+
+        // Reordenar por calorías en memoria cuando aplica
+        if ($sortBy === 'calories') {
+            $sorted = $sortDir === 'asc'
+                ? $enriched->sortBy(fn($r) => $r['macros']['calories'])
+                : $enriched->sortByDesc(fn($r) => $r['macros']['calories']);
+            $enriched = $sorted->values();
+        }
 
         return $this->success([
             'data' => $enriched,
             'meta' => [
                 'current_page' => $recipes->currentPage(),
-                'last_page' => $recipes->lastPage(),
-                'per_page' => $recipes->perPage(),
-                'total' => $recipes->total(),
+                'last_page'    => $recipes->lastPage(),
+                'per_page'     => $recipes->perPage(),
+                'total'        => $recipes->total(),
             ],
         ]);
     }
@@ -58,7 +76,7 @@ class RecipeController extends BaseApiController
                 'ingredients' => 'required|array|min:1',
                 'ingredients.*.food_id' => 'required|exists:foods,id',
                 'ingredients.*.unit_id' => 'required|exists:units,id',
-                'ingredients.*.quantity' => 'required|numeric|min:0.01',
+                'ingredients.*.quantity' => 'required|numeric|min:0',
             ]);
 
             $recipe = Recipe::create([
@@ -115,9 +133,10 @@ class RecipeController extends BaseApiController
                 ],
                 'unit_id' => $ingredient->unit_id,
                 'unit' => [
-                    'id' => $ingredient->unit->id,
-                    'name' => $ingredient->unit->name,
-                    'abbreviation' => $ingredient->unit->abbreviation,
+                    'id'                  => $ingredient->unit->id,
+                    'name'                => $ingredient->unit->name,
+                    'abbreviation'        => $ingredient->unit->abbreviation,
+                    'conversion_to_grams' => $ingredient->unit->conversion_to_grams,
                 ],
                 'quantity' => $ingredient->quantity,
                 'grams' => $ingredient->grams,
@@ -156,7 +175,7 @@ class RecipeController extends BaseApiController
                 'ingredients' => 'required|array|min:1',
                 'ingredients.*.food_id' => 'required|exists:foods,id',
                 'ingredients.*.unit_id' => 'required|exists:units,id',
-                'ingredients.*.quantity' => 'required|numeric|min:0.01',
+                'ingredients.*.quantity' => 'required|numeric|min:0',
             ]);
 
             $recipe->update([

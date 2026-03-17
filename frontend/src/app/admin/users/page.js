@@ -38,7 +38,10 @@ const iconBtn = (hoverColor) => ({
   hover: { background: hoverColor + "18",           color: hoverColor },
 })
 
+import { useToast } from "@/components/providers"
+
 export default function AdminUsers() {
+  const toast = useToast()
   const [users, setUsers]           = useState([])
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState("")
@@ -80,7 +83,7 @@ export default function AdminUsers() {
       setIsDialogOpen(false)
       resetForm()
       fetchUsers()
-    } catch (e) { alert(e.message || "Error al guardar usuario") }
+    } catch (e) { toast.error(e.message || "Error al guardar usuario") }
   }
 
   const handleEdit = (user) => {
@@ -105,7 +108,7 @@ export default function AdminUsers() {
       setConfirmOpen(false)
       fetchUsers()
     } catch (e) {
-      alert(e.message || "Error al eliminar")
+      toast.error(e.message || "Error al eliminar")
     } finally {
       setDeleting(false)
       setDeletingId(null)
