@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { api } from "@/lib/api"
+import { api, plansApi } from "@/lib/api"
 import ConfirmDialog from "@/components/admin/confirm-dialog"
 import { ViewSelector } from "@/components/admin/view-selector"
 import {
-  CalendarDays, Trash2, Eye, ChevronLeft, ChevronRight,
-  User2, Flame, Beef, Clock, AlertTriangle,
+  CalendarDays, Trash2, Eye, Pencil, Copy, ChevronLeft, ChevronRight,
+  User2, Flame, Beef, Clock, AlertTriangle, ToggleLeft, ToggleRight,
 } from "lucide-react"
 
 const DURATION_META = {
@@ -25,10 +25,12 @@ export default function AdminPlans() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [deletingId, setDeletingId]   = useState(null)
-  const [deleting, setDeleting]       = useState(false)
-  const [view, setView]               = useState("table")
+  const [confirmOpen, setConfirmOpen]         = useState(false)
+  const [deletingId, setDeletingId]           = useState(null)
+  const [deleting, setDeleting]               = useState(false)
+  const [togglingId, setTogglingId]           = useState(null)
+  const [duplicatingId, setDuplicatingId]     = useState(null)
+  const [view, setView]                       = useState("table")
 
   useEffect(() => { fetchPlans() }, [page])
 
@@ -54,14 +56,42 @@ export default function AdminPlans() {
   const handleDelete = async () => {
     setDeleting(true)
     try {
-      await api.delete(`/v1/plans/${deletingId}`)
+      await plansApi.deletePlan(deletingId)
       setConfirmOpen(false)
+      toast.success("Plan eliminado permanentemente")
       fetchPlans()
     } catch (error) {
       toast.error(error.message || "Error al eliminar plan")
     } finally {
       setDeleting(false)
       setDeletingId(null)
+    }
+  }
+
+  const handleDuplicate = async (planId) => {
+    setDuplicatingId(planId)
+    try {
+      await plansApi.duplicatePlan(planId)
+      toast.success("Plan duplicado correctamente")
+      fetchPlans()
+    } catch (error) {
+      toast.error(error.message || "Error al duplicar plan")
+    } finally {
+      setDuplicatingId(null)
+    }
+  }
+
+  const handleToggleActive = async (planId) => {
+    setTogglingId(planId)
+    try {
+      const res = await plansApi.toggleActive(planId)
+      const estado = res.data?.is_active ? "activado" : "desactivado"
+      toast.success(`Plan ${estado} correctamente`)
+      fetchPlans()
+    } catch (error) {
+      toast.error(error.message || "Error al cambiar estado del plan")
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -136,10 +166,16 @@ export default function AdminPlans() {
                               <Clock className="h-2.5 w-2.5" />{duration.label}
                             </span>
                           )}
-                          {plan.meals_count === 0 && (
+                          {!plan.is_complete && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
                               style={{ background: "#F59E0B18", color: "#D97706" }}>
                               <AlertTriangle className="h-2.5 w-2.5" />Incompleto
+                            </span>
+                          )}
+                          {!plan.is_active && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                              style={{ background: "#6B728018", color: "#6B7280" }}>
+                              Inactivo
                             </span>
                           )}
                         </div>
@@ -168,7 +204,7 @@ export default function AdminPlans() {
 
                   <div className="flex justify-end gap-1 mt-3">
                     <Link href={`/admin/plans/${plan.id}`}>
-                      <button
+                      <button title="Ver plan"
                         className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150"
                         style={{ color: "var(--color-foreground-subtle)" }}
                         onMouseEnter={e => { e.currentTarget.style.background = "#8B5CF618"; e.currentTarget.style.color = "#8B5CF6" }}
@@ -177,7 +213,40 @@ export default function AdminPlans() {
                         <Eye className="h-3.5 w-3.5" />
                       </button>
                     </Link>
+                    <Link href={`/admin/plans/${plan.id}/edit`}>
+                      <button title="Editar plan"
+                        className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150"
+                        style={{ color: "var(--color-foreground-subtle)" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "#3B82F618"; e.currentTarget.style.color = "#3B82F6" }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--color-foreground-subtle)" }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </Link>
                     <button
+                      title="Duplicar plan"
+                      disabled={duplicatingId === plan.id}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150 disabled:opacity-50"
+                      style={{ color: "var(--color-foreground-subtle)" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "#F59E0B18"; e.currentTarget.style.color = "#F59E0B" }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--color-foreground-subtle)" }}
+                      onClick={() => handleDuplicate(plan.id)}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      title={plan.is_active ? "Desactivar plan" : "Activar plan"}
+                      disabled={togglingId === plan.id}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150 disabled:opacity-50"
+                      style={{ color: plan.is_active ? "#16A34A" : "var(--color-foreground-subtle)" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "#16A34A18"; e.currentTarget.style.color = "#16A34A" }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = plan.is_active ? "#16A34A" : "var(--color-foreground-subtle)" }}
+                      onClick={() => handleToggleActive(plan.id)}
+                    >
+                      {plan.is_active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                    </button>
+                    <button
+                      title="Eliminar plan"
                       className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150"
                       style={{ color: "var(--color-foreground-subtle)" }}
                       onMouseEnter={e => { e.currentTarget.style.background = "#DC262618"; e.currentTarget.style.color = "#DC2626" }}
@@ -226,10 +295,16 @@ export default function AdminPlans() {
                               <Clock className="h-2.5 w-2.5" />{duration.label}
                             </span>
                           )}
-                          {plan.meals_count === 0 && (
+                          {!plan.is_complete && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
                               style={{ background: "#F59E0B18", color: "#D97706" }}>
                               <AlertTriangle className="h-2.5 w-2.5" />Incompleto
+                            </span>
+                          )}
+                          {!plan.is_active && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                              style={{ background: "#6B728018", color: "#6B7280" }}>
+                              Inactivo
                             </span>
                           )}
                         </div>
@@ -259,7 +334,7 @@ export default function AdminPlans() {
                     {/* Actions */}
                     <div className="col-span-2 flex justify-end gap-1">
                       <Link href={`/admin/plans/${plan.id}`}>
-                        <button
+                        <button title="Ver plan"
                           className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150"
                           style={{ color: "var(--color-foreground-subtle)" }}
                           onMouseEnter={e => { e.currentTarget.style.background = "#8B5CF618"; e.currentTarget.style.color = "#8B5CF6" }}
@@ -268,7 +343,40 @@ export default function AdminPlans() {
                           <Eye className="h-3.5 w-3.5" />
                         </button>
                       </Link>
+                      <Link href={`/admin/plans/${plan.id}/edit`}>
+                        <button title="Editar plan"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150"
+                          style={{ color: "var(--color-foreground-subtle)" }}
+                          onMouseEnter={e => { e.currentTarget.style.background = "#3B82F618"; e.currentTarget.style.color = "#3B82F6" }}
+                          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--color-foreground-subtle)" }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </Link>
                       <button
+                        title="Duplicar plan"
+                        disabled={duplicatingId === plan.id}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150 disabled:opacity-50"
+                        style={{ color: "var(--color-foreground-subtle)" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "#F59E0B18"; e.currentTarget.style.color = "#F59E0B" }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--color-foreground-subtle)" }}
+                        onClick={() => handleDuplicate(plan.id)}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        title={plan.is_active ? "Desactivar plan" : "Activar plan"}
+                        disabled={togglingId === plan.id}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150 disabled:opacity-50"
+                        style={{ color: plan.is_active ? "#16A34A" : "var(--color-foreground-subtle)" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "#16A34A18"; e.currentTarget.style.color = "#16A34A" }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = plan.is_active ? "#16A34A" : "var(--color-foreground-subtle)" }}
+                        onClick={() => handleToggleActive(plan.id)}
+                      >
+                        {plan.is_active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                      </button>
+                      <button
+                        title="Eliminar plan"
                         className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-150"
                         style={{ color: "var(--color-foreground-subtle)" }}
                         onMouseEnter={e => { e.currentTarget.style.background = "#DC262618"; e.currentTarget.style.color = "#DC2626" }}
@@ -302,9 +410,9 @@ export default function AdminPlans() {
       </div>
       <ConfirmDialog
         open={confirmOpen}
-        title="¿Eliminar plan?"
-        description="Se eliminará permanentemente el plan nutricional y todas sus comidas asignadas. Esta acción no se puede deshacer."
-        confirmLabel="Eliminar plan"
+        title="¿Eliminar plan definitivamente?"
+        description="Esta acción eliminará el plan y todas sus comidas de forma permanente de la base de datos. No se puede deshacer. Si solo quieres ocultarlo, usa el botón de desactivar."
+        confirmLabel="Sí, eliminar para siempre"
         loading={deleting}
         onConfirm={handleDelete}
         onCancel={() => { setConfirmOpen(false); setDeletingId(null) }}

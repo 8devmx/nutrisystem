@@ -7,7 +7,7 @@
         composer-install composer-update \
         npm-install npm-run npm-build npm-lint \
         tinker test db-reset fresh \
-        stop clean ps
+        stop clean ps categorize
 
 # ===========================================
 # Variables
@@ -33,9 +33,11 @@ help:
 	@echo "  make logs-nginx      - Ver logs de nginx"
 	@echo ""
 	@echo "  make migrate         - Ejecutar migraciones"
-	@echo "  make migrate-fresh   - Recrear base de datos y ejecutar migraciones"
+	@echo "  make migrate-fresh  - Recrear base de datos y ejecutar migraciones"
 	@echo "  make seed           - Ejecutar seeders"
 	@echo "  make tinker         - Abrir tinker (consola Laravel)"
+	@echo "  make categorize     - Categorizar alimentos por macronutriente"
+	@echo "  make categorize-dry - Simular categorización sin guardar"
 	@echo "  make db-reset       - Reset completo de base de datos"
 	@echo ""
 	@echo "  make composer-install - Instalar dependencias PHP"
@@ -108,6 +110,12 @@ seed-run:
 
 tinker:
 	$(COMPOSE_API) php artisan tinker
+
+categorize:
+	$(COMPOSE_API) php artisan foods:categorize
+
+categorize-dry:
+	$(COMPOSE_API) php artisan foods:categorize --dry-run
 
 test:
 	$(COMPOSE_API) php artisan test

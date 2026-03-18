@@ -19,6 +19,7 @@ class Plan extends Model
         'start_date',
         'target_weight_kg',
         'activity_factor',
+        'is_active',
         'total_calories',
         'protein_goal_g',
         'carbs_goal_g',
@@ -32,6 +33,7 @@ class Plan extends Model
         'carbs_goal_g'     => 'decimal:2',
         'fat_goal_g'       => 'decimal:2',
         'target_weight_kg' => 'decimal:2',
+        'is_active'        => 'boolean',
     ];
 
     // ── Relaciones ──────────────────────────────

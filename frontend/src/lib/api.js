@@ -81,6 +81,7 @@ export const api = {
   get: (url) => fetchWithAuth(url),
   post: (url, data) => fetchWithAuth(url, { method: 'POST', body: JSON.stringify(data) }),
   put: (url, data) => fetchWithAuth(url, { method: 'PUT', body: JSON.stringify(data) }),
+  patch: (url, data) => fetchWithAuth(url, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (url) => fetchWithAuth(url, { method: 'DELETE' }),
 }
 
@@ -134,6 +135,15 @@ export const plansApi = {
 
   createPlan: (data) =>
     api.post('/v1/plans', data),
+
+  toggleActive: (planId) =>
+    api.patch(`/v1/plans/${planId}/toggle-active`),
+
+  duplicatePlan: (planId) =>
+    api.post(`/v1/plans/${planId}/duplicate`),
+
+  deletePlan: (planId) =>
+    api.delete(`/v1/plans/${planId}`),
 }
 
 export const foodsApi = {

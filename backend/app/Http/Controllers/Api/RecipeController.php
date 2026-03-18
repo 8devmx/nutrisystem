@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\MealCategory;
 use App\Models\Recipe;
 use App\Models\RecipeIngredient;
 use Illuminate\Http\JsonResponse;
@@ -10,12 +11,33 @@ use Illuminate\Validation\ValidationException;
 
 class RecipeController extends BaseApiController
 {
+    /**
+     * GET /api/v1/recipes/categories
+     * Retorna todas las categorías de comida disponibles.
+     */
+    public function categories(): JsonResponse
+    {
+        $categories = array_map(function ($category) {
+            return [
+                'key' => $category->value,
+                'label' => $category->label(),
+                'color' => $category->color(),
+            ];
+        }, MealCategory::cases());
+
+        return $this->success(['categories' => $categories]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = Recipe::with('ingredientsWithFood');
 
         if ($request->has('search') && $request->search) {
             $query->where('title', 'like', '%' . $request->search . '%');
+        }
+
+        if ($request->has('meal_category') && $request->meal_category) {
+            $query->whereJsonContains('meal_categories', $request->meal_category);
         }
 
         $perPage = min((int) $request->get('per_page', 15), 500);
@@ -40,6 +62,7 @@ class RecipeController extends BaseApiController
                 'servings'         => $recipe->servings,
                 'prep_time_minutes'=> $recipe->prep_time_minutes,
                 'ingredients_count'=> $recipe->ingredients->count(),
+                'meal_categories'  => $recipe->getMealCategoriesInfo(),
                 'macros'           => $macros,
                 'created_at'       => $recipe->created_at,
                 'updated_at'       => $recipe->updated_at,
@@ -73,6 +96,8 @@ class RecipeController extends BaseApiController
                 'description' => 'nullable|string',
                 'servings' => 'nullable|integer|min:1',
                 'prep_time_minutes' => 'nullable|integer|min:1',
+                'meal_categories' => 'nullable|array',
+                'meal_categories.*' => 'string|in:' . implode(',', MealCategory::values()),
                 'ingredients' => 'required|array|min:1',
                 'ingredients.*.food_id' => 'required|exists:foods,id',
                 'ingredients.*.unit_id' => 'required|exists:units,id',
@@ -84,6 +109,7 @@ class RecipeController extends BaseApiController
                 'description' => $validated['description'] ?? null,
                 'servings' => $validated['servings'] ?? 1,
                 'prep_time_minutes' => $validated['prep_time_minutes'] ?? null,
+                'meal_categories' => $validated['meal_categories'] ?? [],
             ]);
 
             foreach ($validated['ingredients'] as $ingredient) {
@@ -99,7 +125,7 @@ class RecipeController extends BaseApiController
             $macros = $recipe->calculateMacros();
 
             return $this->success([
-                'recipe' => $recipe,
+                'recipe' => $this->transformRecipe($recipe),
                 'macros' => $macros,
             ], 'Receta creada exitosamente.', 201);
 
@@ -150,6 +176,7 @@ class RecipeController extends BaseApiController
             'description' => $recipe->description,
             'servings' => $recipe->servings,
             'prep_time_minutes' => $recipe->prep_time_minutes,
+            'meal_categories' => $recipe->getMealCategoriesInfo(),
             'ingredients' => $ingredients,
             'macros' => $macros,
             'macros_per_serving' => $macrosPerServing,
@@ -172,6 +199,8 @@ class RecipeController extends BaseApiController
                 'description' => 'nullable|string',
                 'servings' => 'nullable|integer|min:1',
                 'prep_time_minutes' => 'nullable|integer|min:1',
+                'meal_categories' => 'nullable|array',
+                'meal_categories.*' => 'string|in:' . implode(',', MealCategory::values()),
                 'ingredients' => 'required|array|min:1',
                 'ingredients.*.food_id' => 'required|exists:foods,id',
                 'ingredients.*.unit_id' => 'required|exists:units,id',
@@ -183,6 +212,7 @@ class RecipeController extends BaseApiController
                 'description' => $validated['description'] ?? null,
                 'servings' => $validated['servings'] ?? 1,
                 'prep_time_minutes' => $validated['prep_time_minutes'] ?? null,
+                'meal_categories' => $validated['meal_categories'] ?? [],
             ]);
 
             $recipe->ingredients()->delete();
@@ -200,7 +230,7 @@ class RecipeController extends BaseApiController
             $macros = $recipe->calculateMacros();
 
             return $this->success([
-                'recipe' => $recipe,
+                'recipe' => $this->transformRecipe($recipe),
                 'macros' => $macros,
             ], 'Receta actualizada exitosamente.');
 
@@ -247,5 +277,21 @@ class RecipeController extends BaseApiController
             });
 
         return $this->success(['data' => $recipes]);
+    }
+
+    private function transformRecipe(Recipe $recipe): array
+    {
+        return [
+            'id' => $recipe->id,
+            'title' => $recipe->title,
+            'description' => $recipe->description,
+            'servings' => $recipe->servings,
+            'prep_time_minutes' => $recipe->prep_time_minutes,
+            'meal_categories' => $recipe->getMealCategoriesInfo(),
+            'ingredients_count' => $recipe->ingredients->count(),
+            'macros' => $recipe->calculateMacros(),
+            'created_at' => $recipe->created_at,
+            'updated_at' => $recipe->updated_at,
+        ];
     }
 }

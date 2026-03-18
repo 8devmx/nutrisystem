@@ -6,8 +6,15 @@ import Link from "next/link"
 import { api } from "@/lib/api"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowLeft, Loader2, Plus, Trash2, BookOpen, Flame, Beef, Wheat, Droplets } from "lucide-react"
+import { ArrowLeft, Loader2, Plus, Trash2, BookOpen, Flame, Beef, Wheat, Droplets, Sunrise, Moon, Coffee, Sun, Check } from "lucide-react"
 import { useToast } from "@/components/providers"
+
+const MEAL_CATEGORIES = [
+  { key: 'breakfast', label: 'Desayuno', color: '#F59E0B', icon: Sunrise },
+  { key: 'snack', label: 'Colación', color: '#8B5CF6', icon: Coffee },
+  { key: 'lunch', label: 'Comida', color: '#10B981', icon: Sun },
+  { key: 'dinner', label: 'Cena', color: '#3B82F6', icon: Moon },
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IngredientRow — componente aislado para que el estado del buscador
@@ -205,6 +212,7 @@ export default function RecipeFormPage() {
     description: "",
     servings: 1,
     prep_time_minutes: "",
+    meal_categories: [],
   })
 
   // Cada ingrediente tiene un `_key` estable para que React no destruya las filas
@@ -226,6 +234,7 @@ export default function RecipeFormPage() {
           description: recipe.description || "",
           servings: recipe.servings || 1,
           prep_time_minutes: recipe.prep_time_minutes || "",
+          meal_categories: recipe.meal_categories?.map(c => c.key) || [],
         })
         const ings = (recipe.ingredients || []).map(ing => ({
           ...ing,
@@ -291,6 +300,7 @@ export default function RecipeFormPage() {
         description:      formData.description || null,
         servings:         parseInt(formData.servings, 10) || 1,
         prep_time_minutes: formData.prep_time_minutes ? parseInt(formData.prep_time_minutes, 10) : null,
+        meal_categories:  formData.meal_categories,
         ingredients: ingredients.map(ing => ({
           food_id:  Number(ing.food_id),
           unit_id:  Number(ing.unit_id),
@@ -406,6 +416,42 @@ export default function RecipeFormPage() {
                 placeholder="15"
                 style={S.input}
               />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label style={S.textMuted}>Categoría(s) de comida</Label>
+              <div className="flex flex-wrap gap-2">
+                {MEAL_CATEGORIES.map((cat) => {
+                  const isSelected = formData.meal_categories.includes(cat.key)
+                  const Icon = cat.icon
+                  return (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      onClick={() => {
+                        const newCategories = isSelected
+                          ? formData.meal_categories.filter(c => c !== cat.key)
+                          : [...formData.meal_categories, cat.key]
+                        setFormData({ ...formData, meal_categories: newCategories })
+                      }}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all cursor-pointer ${
+                        isSelected ? 'text-white' : 'border'
+                      }`}
+                      style={{
+                        background: isSelected ? cat.color : 'transparent',
+                        borderColor: isSelected ? cat.color : 'var(--color-border)',
+                        color: isSelected ? 'white' : 'var(--color-foreground-muted)',
+                      }}
+                    >
+                      {isSelected && <Check className="h-4 w-4" />}
+                      <Icon className="h-4 w-4" />
+                      {cat.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs" style={S.textMuted}>
+                Selecciona una o más categorías donde se puede preparar esta receta
+              </p>
             </div>
           </div>
         </div>

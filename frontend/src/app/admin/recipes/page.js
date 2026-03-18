@@ -5,9 +5,20 @@ import Link from "next/link"
 import { api } from "@/lib/api"
 import { Input } from "@/components/ui/input"
 import ConfirmDialog from "@/components/admin/confirm-dialog"
-import { Search, Plus, BookOpen, Flame, Beef, Droplets, Wheat, Loader2, Trash2, Edit, Clock } from "lucide-react"
+import { Search, Plus, BookOpen, Flame, Beef, Droplets, Wheat, Loader2, Trash2, Edit, Clock, Filter, Sunrise, Moon, Coffee, Sun } from "lucide-react"
 
 const PER_PAGE_OPTIONS = [15, 50, 150, 500]
+
+const MEAL_CATEGORIES = [
+  { key: 'breakfast', label: 'Desayuno', color: '#F59E0B', icon: Sunrise },
+  { key: 'snack', label: 'Colación', color: '#8B5CF6', icon: Coffee },
+  { key: 'lunch', label: 'Comida', color: '#10B981', icon: Sun },
+  { key: 'dinner', label: 'Cena', color: '#3B82F6', icon: Moon },
+]
+
+function getCategoryInfo(categoryKey) {
+  return MEAL_CATEGORIES.find(c => c.key === categoryKey) || null
+}
 
 export default function RecipesPage() {
   const [recipes, setRecipes]     = useState([])
@@ -20,6 +31,7 @@ export default function RecipesPage() {
   const [page, setPage]           = useState(1)
   const [sortBy, setSortBy]       = useState("title")    // 'title' | 'calories'
   const [sortDir, setSortDir]     = useState("asc")       // 'asc' | 'desc'
+  const [categoryFilter, setCategoryFilter] = useState("")
 
   const [confirmDialog, setConfirmDialog] = useState({ open: false, id: null, loading: false })
 
@@ -32,11 +44,11 @@ export default function RecipesPage() {
   // Resetear a página 1 cuando cambia cualquier filtro u ordenamiento
   useEffect(() => {
     setPage(1)
-  }, [search, perPage, sortBy, sortDir])
+  }, [search, perPage, sortBy, sortDir, categoryFilter])
 
   useEffect(() => {
     fetchRecipes()
-  }, [search, perPage, page, sortBy, sortDir])
+  }, [search, perPage, page, sortBy, sortDir, categoryFilter])
 
   const fetchRecipes = async () => {
     setLoading(true)
@@ -47,6 +59,7 @@ export default function RecipesPage() {
         sort_by:  sortBy,
         sort_dir: sortDir,
         ...(search ? { search } : {}),
+        ...(categoryFilter ? { meal_category: categoryFilter } : {}),
       })
       const response = await api.get(`/v1/recipes?${params}`)
       setRecipes(response.data.data || [])
@@ -144,6 +157,25 @@ export default function RecipesPage() {
           />
         </div>
 
+        {/* Filtro por categoría */}
+        <div className="flex items-center gap-1.5 px-1 py-1 rounded-lg" style={{ background: "var(--color-surface-raised)" }}>
+          <Filter className="h-4 w-4 ml-2 mr-1" style={S.textMuted} />
+          {[{ key: '', label: 'Todas' }, ...MEAL_CATEGORIES].map((cat) => (
+            <button
+              key={cat.key}
+              onClick={() => setCategoryFilter(cat.key)}
+              className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer"
+              style={
+                categoryFilter === cat.key
+                  ? { background: cat.color + "20", color: cat.color }
+                  : { color: "var(--color-foreground-muted)" }
+              }
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+
         {/* Selector de registros por página */}
         <div className="flex items-center gap-2">
           <span className="text-xs" style={S.textMuted}>Mostrar</span>
@@ -196,6 +228,7 @@ export default function RecipesPage() {
                     Nombre <SortIcon field="title" />
                   </button>
                 </th>
+                <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>Categoría</th>
                 <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>Ingredientes</th>
                 <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>Porciones</th>
                 <th className="p-3 text-left text-xs font-medium" style={S.textMuted}>
@@ -227,6 +260,29 @@ export default function RecipesPage() {
                           <p className="text-xs" style={S.textMuted}>{recipe.description.substring(0, 50)}…</p>
                         )}
                       </div>
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex flex-wrap gap-1">
+                      {recipe.meal_categories?.length > 0 ? (
+                        recipe.meal_categories.map((cat) => {
+                          const catInfo = getCategoryInfo(cat.key)
+                          if (!catInfo) return null
+                          const CatIcon = catInfo.icon
+                          return (
+                            <span
+                              key={cat.key}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium flex items-center gap-1"
+                              style={{ background: catInfo.color + "20", color: catInfo.color }}
+                            >
+                              <CatIcon className="h-3 w-3" />
+                              {catInfo.label}
+                            </span>
+                          )
+                        })
+                      ) : (
+                        <span className="text-xs" style={S.textMuted}>—</span>
+                      )}
                     </div>
                   </td>
                   <td className="p-3 text-sm" style={S.textMuted}>
@@ -305,8 +361,32 @@ export default function RecipesPage() {
               </div>
 
               {recipe.description && (
-                <p className="text-sm mb-3" style={S.textMuted}>{recipe.description}</p>
+                <p className="text-sm mb-3" style={S.textMuted}>{recipe.description}
+                </p>
               )}
+
+              {/* Categorías */}
+              <div className="flex flex-wrap gap-1 mb-3">
+                {recipe.meal_categories?.length > 0 ? (
+                  recipe.meal_categories.map((cat) => {
+                    const catInfo = getCategoryInfo(cat.key)
+                    if (!catInfo) return null
+                    const CatIcon = catInfo.icon
+                    return (
+                      <span
+                        key={cat.key}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium flex items-center gap-1"
+                        style={{ background: catInfo.color + "20", color: catInfo.color }}
+                      >
+                        <CatIcon className="h-3 w-3" />
+                        {catInfo.label}
+                      </span>
+                    )
+                  })
+                ) : (
+                  <span className="text-xs" style={S.textMuted}>Sin categoría</span>
+                )}
+              </div>
 
               <div className="flex items-center gap-4 mb-3 text-xs" style={S.textMuted}>
                 {recipe.servings && (

@@ -44,6 +44,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/units', [UnitController::class, 'index']);
 
         // Alimentos
+        Route::get('/foods/categories', [FoodController::class, 'categories']);
         Route::get('/foods', [FoodController::class, 'index']);
         Route::post('/foods', [FoodController::class, 'store']);
         Route::get('/foods/{id}', [FoodController::class, 'show']);
@@ -52,6 +53,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/foods/{id}/equivalences', [FoodController::class, 'equivalences']);
 
         // Recetas
+        Route::get('/recipes/categories', [RecipeController::class, 'categories']);
         Route::get('/recipes', [RecipeController::class, 'index']);
         Route::post('/recipes', [RecipeController::class, 'store']);
         Route::get('/recipes/search', [RecipeController::class, 'search']);
@@ -62,6 +64,9 @@ Route::prefix('v1')->group(function () {
         // Planes nutricionales
         Route::post('/plans', [PlanController::class, 'store']);
         Route::get('/plans/{id}', [PlanController::class, 'show']);
+        Route::put('/plans/{id}', [PlanController::class, 'update']);
+        Route::post('/plans/{id}/duplicate', [PlanController::class, 'duplicate']);
+        Route::patch('/plans/{id}/toggle-active', [PlanController::class, 'toggleActive']);
         Route::delete('/plans/{id}', [PlanController::class, 'destroy']);
 
         // Comidas de un plan

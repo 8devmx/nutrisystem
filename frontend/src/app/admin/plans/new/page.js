@@ -137,38 +137,41 @@ export default function NewPlanPage() {
 
   const fetchData = async () => {
     try {
-      const [usersRes, foodsRes, recipesRes, unitsRes] = await Promise.all([
+      // Cargar cada recurso de forma independiente para que un fallo no bloquee los demás
+      const [usersResult, foodsResult, unitsResult] = await Promise.allSettled([
         api.get("/v1/admin/users?per_page=100"),
         api.get("/v1/foods?per_page=200"),
-        api.get("/v1/recipes?per_page=100"),
         api.get("/v1/units"),
       ])
-      setUsers(usersRes.data.data || usersRes.data)
-      setFoods(foodsRes.data.data || foodsRes.data)
-      setUnits(unitsRes.data.data || unitsRes.data || [])
 
-      const recipesData = recipesRes.data.data || recipesRes.data
-      const recipesWithIngredients = await Promise.all(
-        recipesData.map(async (r) => {
-          try {
-            const detailRes = await api.get(`/v1/recipes/${r.id}`)
-            return detailRes.data
-          } catch {
-            return r
-          }
-        })
-      )
-      setRecipes(recipesWithIngredients)
+      const allUsers = usersResult.status === 'fulfilled'
+        ? (usersResult.value.data?.data || usersResult.value.data || [])
+        : []
+      if (usersResult.status === 'rejected') {
+        console.error("Error cargando usuarios:", usersResult.reason)
+        toast.error("No se pudieron cargar los usuarios")
+      }
 
-      // Restaurar borrador si existe
+      if (foodsResult.status === 'fulfilled') {
+        setFoods(foodsResult.value.data?.data || foodsResult.value.data || [])
+      }
+      if (unitsResult.status === 'fulfilled') {
+        setUnits(unitsResult.value.data?.data || unitsResult.value.data || [])
+      }
+
+      setUsers(allUsers)
+
+      // Restaurar borrador si existe — solo claves del día 1
       try {
         const raw = sessionStorage.getItem(DRAFT_KEY)
         if (raw) {
           const { formData: savedForm, meals: savedMeals } = JSON.parse(raw)
+          // Filtrar el borrador para conservar solo las entradas del día 1
+          const filteredMeals = Object.fromEntries(
+            Object.entries(savedMeals || {}).filter(([k]) => k.startsWith('1-'))
+          )
           setFormData(savedForm)
-          setMeals(savedMeals || {})
-          // Restaurar selectedUser para que funcionen los datos antropométricos
-          const allUsers = usersRes.data.data || usersRes.data
+          setMeals(filteredMeals)
           const match = allUsers.find(u => String(u.id) === String(savedForm.user_id))
           if (match) setSelectedUser(match)
           setHasDraft(true)
@@ -179,6 +182,22 @@ export default function NewPlanPage() {
       console.error("Error fetching data:", error)
     } finally {
       setFetchingData(false)
+    }
+
+    // Cargar recetas en background — no bloquea si falla
+    try {
+      const recipesRes = await api.get("/v1/recipes?per_page=100")
+      // La respuesta es { data: { data: [...], meta: {...} } } o { data: [...] }
+      const recipesRaw = recipesRes.data?.data?.data || recipesRes.data?.data || recipesRes.data || []
+      const withIngredients = await Promise.allSettled(
+        (Array.isArray(recipesRaw) ? recipesRaw : []).map(r => api.get(`/v1/recipes/${r.id}`))
+      )
+      const loaded = withIngredients
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value.data)
+      setRecipes(loaded)
+    } catch (e) {
+      console.warn("No se pudieron cargar recetas:", e)
     }
   }
 
@@ -493,35 +512,41 @@ export default function NewPlanPage() {
       const response = await api.post("/v1/plans", planData)
       const planId = response.data.plan_id
 
-      // Guardar comidas — expandir recetas en sus ingredientes individuales
+      // Guardar comidas — replicar el día 1 para todos los días del plan
       const mealsToSave = []
-      Object.entries(meals).forEach(([key, dayMeals]) => {
-        const [day, moment] = key.split('-')
-        dayMeals.forEach(item => {
-          if (item.is_recipe) {
-            // Expandir ingredientes de la receta como comidas individuales
-            ;(item.ingredients || []).forEach(ing => {
-              if (!ing.food_id || !ing.unit_id || !ing.quantity) return
-              mealsToSave.push({
-                day_number: parseInt(day),
-                meal_moment: moment,
-                food_id:  Number(ing.food_id),
-                unit_id:  Number(ing.unit_id),
-                quantity: parseFloat(ing.quantity),
+
+      // Obtener las comidas del día 1
+      const day1Entries = Object.entries(meals).filter(([key]) => key.startsWith('1-'))
+
+      // Generar comidas para todos los días
+      for (let targetDay = 1; targetDay <= totalDays; targetDay++) {
+        day1Entries.forEach(([key, dayMeals]) => {
+          const moment = key.slice(2) // quitar '1-'
+          dayMeals.forEach(item => {
+            if (item.is_recipe) {
+              ;(item.ingredients || []).forEach(ing => {
+                if (!ing.food_id || !ing.unit_id || !ing.quantity) return
+                mealsToSave.push({
+                  day_number: targetDay,
+                  meal_moment: moment,
+                  food_id:  Number(ing.food_id),
+                  unit_id:  Number(ing.unit_id),
+                  quantity: parseFloat(ing.quantity),
+                })
               })
-            })
-          } else {
-            if (!item.food_id || !item.unit_id || !item.quantity) return
-            mealsToSave.push({
-              day_number: parseInt(day),
-              meal_moment: moment,
-              food_id:  Number(item.food_id),
-              unit_id:  Number(item.unit_id),
-              quantity: parseFloat(item.quantity),
-            })
-          }
+            } else {
+              if (!item.food_id || !item.unit_id || !item.quantity) return
+              mealsToSave.push({
+                day_number: targetDay,
+                meal_moment: moment,
+                food_id:  Number(item.food_id),
+                unit_id:  Number(item.unit_id),
+                quantity: parseFloat(item.quantity),
+              })
+            }
+          })
         })
-      })
+      }
 
       if (mealsToSave.length > 0) {
         await Promise.all(mealsToSave.map(meal => api.post(`/v1/plans/${planId}/meals`, meal)))
@@ -825,170 +850,215 @@ export default function NewPlanPage() {
             <Flame className="h-5 w-5" /> Plan de alimentación
           </h2>
 
-          {Array.from({ length: totalDays }, (_, i) => i + 1).map(day => (
-            <div key={day} className="mb-6 p-4 rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-              <h3 className="font-semibold mb-3" style={S.textMain}>Día {day}</h3>
-              
-              <div className="space-y-4">
-                {MEAL_MOMENTS.map(moment => {
-                  const key = `${day}-${moment.key}`
-                  const dayMeals = meals[key] || []
-                  const macros = calculateMealMacros(day, moment.key)
-                  
-                  return (
-                    <div key={moment.key} className="p-3 rounded-lg" style={{ background: "var(--color-surface-raised)" }}>
-                      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                        <span className="font-medium text-sm" style={S.textMain}>{moment.label}</span>
-                        <div className="flex gap-3 text-xs" style={S.textMuted}>
-                          <span>{macros.calories} kcal</span>
-                          <span style={{ color: "#3B82F6" }}>P: {macros.protein}g</span>
-                          <span style={{ color: "#F59E0B" }}>C: {macros.carbs}g</span>
-                          <span style={{ color: "#F97316" }}>G: {macros.fat}g</span>
-                        </div>
-                      </div>
+            {/* Solo se muestra y edita el Día 1. Los días restantes se generan automáticamente al guardar. */}
+          <div className="mb-2 p-3 rounded-lg text-sm flex items-center gap-2" style={{ background: "var(--color-surface-raised)", color: "var(--color-foreground-muted)" }}>
+            <CalendarDays className="h-4 w-4 flex-shrink-0" />
+            <span>Define las comidas del <strong style={{ color: "var(--color-foreground)" }}>Día 1</strong>. Este día se replicará automáticamente para los {totalDays} días del plan al guardar.</span>
+          </div>
 
-                      {dayMeals.map((item, idx) => (
-                        item.is_recipe ? (
-                          // ── Receta agrupada ──
-                          <div key={idx} className="mb-2 rounded border overflow-hidden" style={{ borderColor: "#8B5CF640" }}>
-                            <div className="flex items-center justify-between px-2 py-1.5" style={{ background: "#8B5CF610" }}>
-                              <button
-                                type="button"
-                                className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
-                                style={{ color: "#8B5CF6" }}
-                                onClick={() => toggleRecipeExpanded(day, moment.key, idx)}
-                              >
-                                <span>{item.expanded ? "▾" : "▸"}</span>
-                                🧑‍🍳 {item.recipe_title}
-                                <span className="font-normal" style={{ color: "#8B5CF6AA" }}>({item.ingredients?.length || 0} ingredientes)</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => removeMealFood(day, moment.key, idx)}
-                                className="p-0.5 rounded cursor-pointer"
-                                onMouseEnter={e => e.currentTarget.style.background = "#DC262618"}
-                                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" style={{ color: "#DC2626" }} />
-                              </button>
-                            </div>
-                            {item.expanded && (
-                              <div className="px-2 pt-1 pb-2 space-y-1">
-                                {(item.ingredients || []).map((ing, iidx) => (
-                                  <div key={iidx} className="flex items-center gap-2 text-xs" style={{ color: "var(--color-foreground-muted)" }}>
-                                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#8B5CF6" }} />
-                                    <span className="flex-1 truncate">{ing.food?.name || "Alimento"}</span>
-                                    <span className="text-[10px]">{ing.quantity} {ing.unit?.abbreviation || ing.unit}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          // ── Alimento suelto ──
-                          <div key={idx} className="flex items-center gap-2 mb-2">
-                            <div className="relative flex-1">
-                              {(() => {
-                                // inputKey único por fila: evita que los dropdowns se mezclen
-                                const inputKey = `${day}-${moment.key}-${idx}`
-                                return (
-                                  <>
-                                    <input
-                                      type="text"
-                                      value={foodSearch[inputKey] ?? (item.food?.name || "")}
-                                      onChange={(e) => {
-                                        const val = e.target.value
-                                        setFoodSearch(prev => ({ ...prev, [inputKey]: val }))
-                                        if (item.food_id) updateMealFood(day, moment.key, idx, 'food_id', "")
-                                        searchFoodsForKey(inputKey, val)
-                                      }}
-                                      onFocus={(e) => {
-                                        const val = e.target.value
-                                        if (val.trim().length > 0) searchFoodsForKey(inputKey, val)
-                                      }}
-                                      onBlur={() => {
-                                        setTimeout(() => {
-                                          setFoodResults(prev => ({ ...prev, [inputKey]: [] }))
-                                          if (!item.food_id) {
-                                            setFoodSearch(prev => ({ ...prev, [inputKey]: "" }))
-                                          }
-                                        }, 200)
-                                      }}
-                                      className="w-full h-8 px-2 rounded border text-xs"
-                                      style={{
-                                        ...S.input,
-                                        borderColor: item.food_id ? "var(--color-primary)" : "var(--color-border)",
-                                      }}
-                                      placeholder="Busca los alimentos..."
-                                    />
-                                    {(foodResults[inputKey] || []).length > 0 && (
-                                      <div className="absolute z-10 w-full mt-1 border rounded-lg shadow-lg max-h-48 overflow-auto" style={S.surface}>
-                                        {(foodResults[inputKey] || []).map((sug) => (
-                                          <div
-                                            key={sug.type === 'recipe' ? `r-${sug.id}` : sug.id}
-                                            className="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
-                                            style={{ color: "var(--color-foreground)" }}
-                                            onMouseEnter={e => e.currentTarget.style.background = "var(--color-surface-raised)"}
-                                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                                            onMouseDown={() => {
-                                              if (sug.type === 'recipe') {
-                                                addRecipeToMeal(day, moment.key, sug)
-                                                removeMealFood(day, moment.key, idx)
-                                              } else {
-                                                updateMealFood(day, moment.key, idx, 'food_id', sug.id)
-                                                setFoodSearch(prev => ({ ...prev, [inputKey]: sug.name }))
-                                              }
-                                              setFoodResults(prev => ({ ...prev, [inputKey]: [] }))
-                                            }}
-                                          >
-                                            <span>{sug.type === 'recipe' ? sug.title : sug.name}</span>
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded ml-2" style={sug.type === 'recipe' ? { background: "#8B5CF618", color: "#8B5CF6" } : { background: "#16A34A18", color: "#16A34A" }}>
-                                              {sug.type === 'recipe' ? 'Receta' : 'Alimento'}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </>
-                                )
-                              })()}
-                            </div>
-                            <input
-                              type="number"
-                              value={item.quantity}
-                              onChange={(e) => updateMealFood(day, moment.key, idx, 'quantity', e.target.value)}
-                              className="w-16 h-8 px-2 rounded border text-xs"
-                              style={S.input}
-                              placeholder="g"
-                              step="any"
-                            />
+          <div className="mb-6 p-4 rounded-lg border" style={{ borderColor: "var(--color-primary)", boxShadow: "0 0 0 1px var(--color-primary)20" }}>
+            <h3 className="font-semibold mb-3 flex items-center gap-2" style={S.textMain}>
+              Día 1
+              <span className="text-xs font-normal px-2 py-0.5 rounded-full" style={{ background: "var(--color-primary)18", color: "var(--color-primary)" }}>Plantilla del plan</span>
+            </h3>
+
+            <div className="space-y-4">
+              {MEAL_MOMENTS.map(moment => {
+                const key = `1-${moment.key}`
+                const dayMeals = meals[key] || []
+                const macros = calculateMealMacros(1, moment.key)
+                // meal_categories es un array con valores: 'breakfast','snack','lunch','dinner'
+                // morning_snack y afternoon_snack del plan ambos mapean a 'snack' en recetas
+                const categoryMap = {
+                  breakfast:       'breakfast',
+                  morning_snack:   'snack',
+                  lunch:           'lunch',
+                  afternoon_snack: 'snack',
+                  dinner:          'dinner',
+                }
+                const targetCategory = categoryMap[moment.key]
+                // meal_categories puede llegar como array de strings ['breakfast'] o de objetos [{key:'breakfast',...}]
+                const momentRecipes = recipes.filter(r => {
+                  if (!Array.isArray(r.meal_categories)) return false
+                  return r.meal_categories.some(c =>
+                    typeof c === 'string' ? c === targetCategory : c?.key === targetCategory
+                  )
+                }).slice(0, 6)
+
+                return (
+                  <div key={moment.key} className="p-3 rounded-lg" style={{ background: "var(--color-surface-raised)" }}>
+                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                      <span className="font-medium text-sm" style={S.textMain}>{moment.label}</span>
+                      <div className="flex gap-3 text-xs" style={S.textMuted}>
+                        <span>{macros.calories} kcal</span>
+                        <span style={{ color: "#3B82F6" }}>P: {macros.protein}g</span>
+                        <span style={{ color: "#F59E0B" }}>C: {macros.carbs}g</span>
+                        <span style={{ color: "#F97316" }}>G: {macros.fat}g</span>
+                      </div>
+                    </div>
+
+                    {/* Pills de recetas sugeridas */}
+                    {momentRecipes.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {momentRecipes.map(r => (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => addRecipeToMeal(1, moment.key, r)}
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border cursor-pointer transition-colors"
+                            style={{ borderColor: "#8B5CF640", color: "#8B5CF6", background: "#8B5CF608" }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "#8B5CF618"; e.currentTarget.style.borderColor = "#8B5CF6" }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "#8B5CF608"; e.currentTarget.style.borderColor = "#8B5CF640" }}
+                            title={`Agregar receta: ${r.title}`}
+                          >
+                            <span>🧑‍🍳</span>
+                            <span className="truncate max-w-[120px]">{r.title}</span>
+                            <Plus className="h-2.5 w-2.5 flex-shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {dayMeals.map((item, idx) => (
+                      item.is_recipe ? (
+                        // ── Receta agrupada ──
+                        <div key={idx} className="mb-2 rounded border overflow-hidden" style={{ borderColor: "#8B5CF640" }}>
+                          <div className="flex items-center justify-between px-2 py-1.5" style={{ background: "#8B5CF610" }}>
                             <button
                               type="button"
-                              onClick={() => removeMealFood(day, moment.key, idx)}
-                              className="p-1 rounded cursor-pointer"
-                              onMouseEnter={e => e.currentTarget.style.background = "#FEE2E218"}
+                              className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+                              style={{ color: "#8B5CF6" }}
+                              onClick={() => toggleRecipeExpanded(1, moment.key, idx)}
+                            >
+                              <span>{item.expanded ? "▾" : "▸"}</span>
+                              🧑‍🍳 {item.recipe_title}
+                              <span className="font-normal" style={{ color: "#8B5CF6AA" }}>({item.ingredients?.length || 0} ingredientes)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeMealFood(1, moment.key, idx)}
+                              className="p-0.5 rounded cursor-pointer"
+                              onMouseEnter={e => e.currentTarget.style.background = "#DC262618"}
                               onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                             >
-                              <Trash2 className="h-4 w-4" style={{ color: "#DC2626" }} />
+                              <Trash2 className="h-3.5 w-3.5" style={{ color: "#DC2626" }} />
                             </button>
                           </div>
-                        )
-                      ))}
+                          {item.expanded && (
+                            <div className="px-2 pt-1 pb-2 space-y-1">
+                              {(item.ingredients || []).map((ing, iidx) => (
+                                <div key={iidx} className="flex items-center gap-2 text-xs" style={{ color: "var(--color-foreground-muted)" }}>
+                                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#8B5CF6" }} />
+                                  <span className="flex-1 truncate">{ing.food?.name || "Alimento"}</span>
+                                  <span className="text-[10px]">{ing.quantity} {ing.unit?.abbreviation || ing.unit}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        // ── Alimento suelto ──
+                        <div key={idx} className="flex items-center gap-2 mb-2">
+                          <div className="relative flex-1">
+                            {(() => {
+                              const inputKey = `1-${moment.key}-${idx}`
+                              return (
+                                <>
+                                  <input
+                                    type="text"
+                                    value={foodSearch[inputKey] ?? (item.food?.name || "")}
+                                    onChange={(e) => {
+                                      const val = e.target.value
+                                      setFoodSearch(prev => ({ ...prev, [inputKey]: val }))
+                                      if (item.food_id) updateMealFood(1, moment.key, idx, 'food_id', "")
+                                      searchFoodsForKey(inputKey, val)
+                                    }}
+                                    onFocus={(e) => {
+                                      const val = e.target.value
+                                      if (val.trim().length > 0) searchFoodsForKey(inputKey, val)
+                                    }}
+                                    onBlur={() => {
+                                      setTimeout(() => {
+                                        setFoodResults(prev => ({ ...prev, [inputKey]: [] }))
+                                        if (!item.food_id) {
+                                          setFoodSearch(prev => ({ ...prev, [inputKey]: "" }))
+                                        }
+                                      }, 200)
+                                    }}
+                                    className="w-full h-8 px-2 rounded border text-xs"
+                                    style={{
+                                      ...S.input,
+                                      borderColor: item.food_id ? "var(--color-primary)" : "var(--color-border)",
+                                    }}
+                                    placeholder="Busca los alimentos..."
+                                  />
+                                  {(foodResults[inputKey] || []).length > 0 && (
+                                    <div className="absolute z-10 w-full mt-1 border rounded-lg shadow-lg max-h-48 overflow-auto" style={S.surface}>
+                                      {(foodResults[inputKey] || []).map((sug) => (
+                                        <div
+                                          key={sug.type === 'recipe' ? `r-${sug.id}` : sug.id}
+                                          className="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
+                                          style={{ color: "var(--color-foreground)" }}
+                                          onMouseEnter={e => e.currentTarget.style.background = "var(--color-surface-raised)"}
+                                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                                          onMouseDown={() => {
+                                            if (sug.type === 'recipe') {
+                                              addRecipeToMeal(1, moment.key, sug)
+                                              removeMealFood(1, moment.key, idx)
+                                            } else {
+                                              updateMealFood(1, moment.key, idx, 'food_id', sug.id)
+                                              setFoodSearch(prev => ({ ...prev, [inputKey]: sug.name }))
+                                            }
+                                            setFoodResults(prev => ({ ...prev, [inputKey]: [] }))
+                                          }}
+                                        >
+                                          <span>{sug.type === 'recipe' ? sug.title : sug.name}</span>
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded ml-2" style={sug.type === 'recipe' ? { background: "#8B5CF618", color: "#8B5CF6" } : { background: "#16A34A18", color: "#16A34A" }}>
+                                            {sug.type === 'recipe' ? 'Receta' : 'Alimento'}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )
+                            })()}
+                          </div>
+                          <input
+                            type="number"
+                            value={item.quantity}
+                            onChange={(e) => updateMealFood(1, moment.key, idx, 'quantity', e.target.value)}
+                            className="w-16 h-8 px-2 rounded border text-xs"
+                            style={S.input}
+                            placeholder="g"
+                            step="any"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeMealFood(1, moment.key, idx)}
+                            className="p-1 rounded cursor-pointer"
+                            onMouseEnter={e => e.currentTarget.style.background = "#FEE2E218"}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                          >
+                            <Trash2 className="h-4 w-4" style={{ color: "#DC2626" }} />
+                          </button>
+                        </div>
+                      )
+                    ))}
 
-                      <button
-                        type="button"
-                        onClick={() => addFoodToMeal(day, moment.key)}
-                        className="flex items-center gap-1 text-xs mt-2 cursor-pointer"
-                        style={{ color: "var(--color-primary)" }}
-                      >
-                        <Plus className="h-3 w-3" /> Agregar alimento
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => addFoodToMeal(1, moment.key)}
+                      className="flex items-center gap-1 text-xs mt-2 cursor-pointer"
+                      style={{ color: "var(--color-primary)" }}
+                    >
+                      <Plus className="h-3 w-3" /> Agregar alimento
+                    </button>
+                  </div>
+                )
+              })}
             </div>
-          ))}
+          </div>
         </div>
 
         {/* Resumen diario — día 1 como referencia */}

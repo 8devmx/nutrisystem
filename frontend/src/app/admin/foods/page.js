@@ -11,8 +11,23 @@ import { ViewSelector } from "@/components/admin/view-selector"
 import {
   UtensilsCrossed, Plus, Search, Pencil, Trash2,
   ChevronLeft, ChevronRight, Flame, Beef, Wheat, Droplets, Leaf, Check, Square,
-  Barcode, X, AlertCircle, Loader2, ExternalLink, ArrowLeft,
+  Barcode, X, AlertCircle, Loader2, ExternalLink, ArrowLeft, Filter,
 } from "lucide-react"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Categorías de macronutrientes
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MACRO_CATEGORIES = [
+  { key: 'protein',  label: 'Proteico',  color: '#3B82F6', icon: Beef },
+  { key: 'carbs',    label: 'Carbs',     color: '#F59E0B', icon: Wheat },
+  { key: 'fat',      label: 'Graso',     color: '#F97316', icon: Droplets },
+  { key: 'balanced', label: 'Balanceado',color: '#16A34A', icon: Leaf },
+]
+
+function getCategoryInfo(category) {
+  return MACRO_CATEGORIES.find(c => c.key === category?.key) || MACRO_CATEGORIES[3]
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers Open Food Facts
@@ -447,6 +462,7 @@ export default function AdminFoods() {
   const [page, setPage]               = useState(1)
   const [totalPages, setTotalPages]   = useState(1)
   const [total, setTotal]             = useState(0)
+  const [categoryFilter, setCategoryFilter] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingFood, setEditingFood] = useState(null)
   const [confirmOpen, setConfirmOpen]   = useState(false)
@@ -461,13 +477,17 @@ export default function AdminFoods() {
     protein_g: "", carbs_g: "", fat_g: "", fiber_g: "", image_path: "",
   })
 
-  useEffect(() => { fetchFoods() }, [page, search])
-  useEffect(() => { setSelectedIds(new Set()) }, [page, search])
+  useEffect(() => { fetchFoods() }, [page, search, categoryFilter])
+  useEffect(() => { setSelectedIds(new Set()) }, [page, search, categoryFilter])
 
   const fetchFoods = async () => {
     setLoading(true)
     try {
-      const query    = search ? `?search=${search}&page=${page}` : `?page=${page}`
+      const params = new URLSearchParams()
+      if (search) params.append('search', search)
+      if (page) params.append('page', page)
+      if (categoryFilter) params.append('macro_category', categoryFilter)
+      const query = params.toString() ? `?${params.toString()}` : ''
       const response = await api.get(`/v1/foods${query}`)
       setFoods(response.data.data || response.data)
       setTotalPages(response.data.last_page || 1)
@@ -627,16 +647,35 @@ export default function AdminFoods() {
         </div>
       </div>
 
-      {/* ── Search ── */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={S.textSub} />
-        <input
-          placeholder="Buscar alimentos..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-          className="w-full h-10 pl-9 pr-3 rounded-lg border text-sm outline-none transition-colors"
-          style={S.input}
-        />
+      {/* ── Search & Filters ── */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={S.textSub} />
+          <input
+            placeholder="Buscar alimentos..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+            className="w-full h-10 pl-9 pr-3 rounded-lg border text-sm outline-none transition-colors"
+            style={S.input}
+          />
+        </div>
+        <div className="flex items-center gap-1.5 px-1 py-1 rounded-lg" style={{ background: "var(--color-surface-raised)" }}>
+          <Filter className="h-4 w-4 ml-2 mr-1" style={S.textMuted} />
+          {[{ key: '', label: 'Todas' }, ...MACRO_CATEGORIES].map((cat) => (
+            <button
+              key={cat.key}
+              onClick={() => { setCategoryFilter(cat.key); setPage(1) }}
+              className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer"
+              style={
+                categoryFilter === cat.key
+                  ? { background: cat.color + "20", color: cat.color }
+                  : { color: "var(--color-foreground-muted)" }
+              }
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ── Table / Cards ── */}
@@ -672,7 +711,15 @@ export default function AdminFoods() {
                     <UtensilsCrossed className="h-5 w-5" style={{ color: "#16A34A" }} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold truncate" style={S.textMain}>{food.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold truncate" style={S.textMain}>{food.name}</p>
+                      {food.macro_category && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0"
+                          style={{ background: getCategoryInfo(food.macro_category).color + "20", color: getCategoryInfo(food.macro_category).color }}>
+                          {getCategoryInfo(food.macro_category).label}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1 mt-0.5">
                       <Flame className="h-3 w-3" style={{ color: "#F97316" }} />
                       <span className="text-xs" style={S.textMuted}>{food.calories_per_100g} kcal</span>
@@ -721,8 +768,9 @@ export default function AdminFoods() {
                 {selectedIds.size === foods.length && foods.length > 0 ? <Check className="h-4 w-4" /> : <Square className="h-4 w-4" />}
               </button>
               <p className="col-span-3 text-xs font-semibold uppercase tracking-wide" style={S.textMuted}>Alimento</p>
-              <p className="col-span-5 text-xs font-semibold uppercase tracking-wide" style={S.textMuted}>Macronutrientes / 100g</p>
-              <p className="col-span-3 text-xs font-semibold uppercase tracking-wide text-right" style={S.textMuted}>Acciones</p>
+              <p className="col-span-4 text-xs font-semibold uppercase tracking-wide" style={S.textMuted}>Macronutrientes / 100g</p>
+              <p className="col-span-4 text-xs font-semibold uppercase tracking-wide" style={S.textMuted}>Categoría</p>
+              <p className="col-span-1 text-xs font-semibold uppercase tracking-wide text-right" style={S.textMuted}>Acciones</p>
             </div>
             <div className="divide-y" style={S.border}>
               {foods.map((food) => (
@@ -753,7 +801,7 @@ export default function AdminFoods() {
                       <div className="h-full rounded-full transition-all" style={{ width: `${calBar(food.calories_per_100g)}%`, background: "#F97316" }} />
                     </div>
                   </div>
-                  <div className="col-span-5 flex flex-wrap gap-1.5">
+                  <div className="col-span-4 flex flex-wrap gap-1.5">
                     {[
                       { icon: Beef,     val: `P: ${food.protein_g}g`,  color: "#3B82F6" },
                       { icon: Wheat,    val: `C: ${food.carbs_g}g`,    color: "#F59E0B" },
@@ -766,7 +814,21 @@ export default function AdminFoods() {
                       </span>
                     ))}
                   </div>
-                  <div className="col-span-3 flex justify-end gap-1">
+                  <div className="col-span-4">
+                    {food.macro_category ? (
+                      <span className="px-2 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1.5"
+                        style={{ background: getCategoryInfo(food.macro_category).color + "20", color: getCategoryInfo(food.macro_category).color }}>
+                        {(() => {
+                          const CatIcon = getCategoryInfo(food.macro_category).icon
+                          return <CatIcon className="h-3 w-3" />
+                        })()}
+                        {getCategoryInfo(food.macro_category).label}
+                      </span>
+                    ) : (
+                      <span className="text-xs" style={S.textMuted}>—</span>
+                    )}
+                  </div>
+                  <div className="col-span-1 flex justify-end gap-1">
                     {[
                       { Icon: Pencil, color: "#64748B", onClick: () => handleEdit(food) },
                       { Icon: Trash2, color: "#DC2626", onClick: () => askDelete(food.id) },

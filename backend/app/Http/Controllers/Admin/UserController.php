@@ -150,6 +150,41 @@ class UserController extends \App\Http\Controllers\Controller
 
         $plans = $query->withCount('meals')->latest()->paginate(15);
 
+        // Calcular is_complete: un plan está completo si cada día tiene
+        // al menos los 3 momentos obligatorios (breakfast, lunch, dinner)
+        // con al menos 1 alimento. Las colaciones son opcionales.
+        $requiredMoments = ['breakfast', 'lunch', 'dinner'];
+
+        $plans->getCollection()->transform(function ($plan) use ($requiredMoments) {
+            $totalDays = match ($plan->duration) {
+                'weekly'   => 7,
+                'biweekly' => 14,
+                'monthly'  => 30,
+                default    => 7,
+            };
+
+            // Obtener combinaciones día-momento que tienen al menos 1 comida
+            $covered = $plan->meals()
+                ->selectRaw('day_number, meal_moment')
+                ->groupBy('day_number', 'meal_moment')
+                ->get()
+                ->map(fn($m) => "{$m->day_number}-{$m->meal_moment}")
+                ->toArray();
+
+            $isComplete = true;
+            for ($day = 1; $day <= $totalDays; $day++) {
+                foreach ($requiredMoments as $moment) {
+                    if (!in_array("{$day}-{$moment}", $covered)) {
+                        $isComplete = false;
+                        break 2;
+                    }
+                }
+            }
+
+            $plan->is_complete = $isComplete;
+            return $plan;
+        });
+
         return response()->json([
             'success' => true,
             'data' => $plans,
