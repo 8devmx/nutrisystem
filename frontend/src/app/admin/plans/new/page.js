@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { api } from "@/lib/api"
@@ -106,6 +106,11 @@ export default function NewPlanPage() {
   const [foodResults, setFoodResults] = useState({})     // resultados del API por key
   const [foodSearchTimers, setFoodSearchTimers] = useState({})
   const [recipes, setRecipes] = useState([])
+  const recipesRef = React.useRef([])
+  const setRecipesAndRef = (data) => {
+    recipesRef.current = data
+    setRecipes(data)
+  }
 
   // ── Persistencia en sessionStorage ──────────────────────────────────────
 
@@ -195,7 +200,7 @@ export default function NewPlanPage() {
       const loaded = withIngredients
         .filter(r => r.status === 'fulfilled')
         .map(r => r.value.data)
-      setRecipes(loaded)
+      setRecipesAndRef(loaded)
     } catch (e) {
       console.warn("No se pudieron cargar recetas:", e)
     }
@@ -298,13 +303,25 @@ export default function NewPlanPage() {
           return
         }
         try {
-          const res = await api.get(`/v1/foods?search=${encodeURIComponent(query)}&per_page=8`)
-          // El API ya excluye soft-deleted via SoftDeletes del modelo
-          const foodItems = (res.data?.data || res.data || []).map(f => ({ ...f, type: 'food' }))
-          const recipeItems = recipes
+          const [foodsRes, recipesSearchRes] = await Promise.allSettled([
+            api.get(`/v1/foods?search=${encodeURIComponent(query)}&per_page=8`),
+            api.get(`/v1/recipes?search=${encodeURIComponent(query)}&per_page=5`),
+          ])
+          const foodItems = foodsRes.status === 'fulfilled'
+            ? (foodsRes.value.data?.data || foodsRes.value.data || []).map(f => ({ ...f, type: 'food' }))
+            : []
+          // Combinar resultados del API con los ya cargados en memoria (por si el API devuelve pocos)
+          const apiRecipes = recipesSearchRes.status === 'fulfilled'
+            ? (recipesSearchRes.value.data?.data || []).map(r => ({ ...r, type: 'recipe' }))
+            : []
+          const memRecipes = recipesRef.current
             .filter(r => r.title?.toLowerCase().includes(query.toLowerCase()))
-            .slice(0, 3)
+            .slice(0, 5)
             .map(r => ({ ...r, type: 'recipe' }))
+          // Unir ambas fuentes eliminando duplicados por id
+          const seen = new Set(apiRecipes.map(r => r.id))
+          const extraRecipes = memRecipes.filter(r => !seen.has(r.id))
+          const recipeItems = [...apiRecipes, ...extraRecipes].slice(0, 5)
           setFoodResults(prev2 => ({ ...prev2, [inputKey]: [...foodItems, ...recipeItems] }))
         } catch {
           setFoodResults(prev2 => ({ ...prev2, [inputKey]: [] }))
@@ -357,6 +374,17 @@ export default function NewPlanPage() {
         }
       }
       return next
+    })
+  }
+
+  const updateRecipeIngredientQty = (moment, itemIdx, ingIdx, value) => {
+    const key = `1-${moment}`
+    setMeals(prev => {
+      const rows = [...(prev[key] || [])]
+      const ingredients = [...(rows[itemIdx].ingredients || [])]
+      ingredients[ingIdx] = { ...ingredients[ingIdx], quantity: value }
+      rows[itemIdx] = { ...rows[itemIdx], ingredients }
+      return { ...prev, [key]: rows }
     })
   }
 
@@ -921,7 +949,7 @@ export default function NewPlanPage() {
 
                     {dayMeals.map((item, idx) => (
                       item.is_recipe ? (
-                        // ── Receta agrupada ──
+                        // ── Receta con ingredientes editables ──
                         <div key={idx} className="mb-2 rounded border overflow-hidden" style={{ borderColor: "#8B5CF640" }}>
                           <div className="flex items-center justify-between px-2 py-1.5" style={{ background: "#8B5CF610" }}>
                             <button
@@ -945,12 +973,22 @@ export default function NewPlanPage() {
                             </button>
                           </div>
                           {item.expanded && (
-                            <div className="px-2 pt-1 pb-2 space-y-1">
+                            <div className="px-2 pt-1 pb-2 space-y-1.5">
                               {(item.ingredients || []).map((ing, iidx) => (
-                                <div key={iidx} className="flex items-center gap-2 text-xs" style={{ color: "var(--color-foreground-muted)" }}>
+                                <div key={iidx} className="flex items-center gap-2 text-xs">
                                   <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#8B5CF6" }} />
-                                  <span className="flex-1 truncate">{ing.food?.name || "Alimento"}</span>
-                                  <span className="text-[10px]">{ing.quantity} {ing.unit?.abbreviation || ing.unit}</span>
+                                  <span className="flex-1 truncate" style={{ color: "var(--color-foreground-muted)" }}>{ing.food?.name || "Alimento"}</span>
+                                  <input
+                                    type="number"
+                                    value={ing.quantity}
+                                    step="any"
+                                    onChange={e => updateRecipeIngredientQty(moment.key, idx, iidx, e.target.value)}
+                                    className="w-16 h-6 px-1.5 rounded border text-xs text-right"
+                                    style={S.input}
+                                  />
+                                  <span className="text-[10px] w-8 text-right" style={{ color: "var(--color-foreground-muted)" }}>
+                                    {ing.unit?.abbreviation || ing.unit || 'g'}
+                                  </span>
                                 </div>
                               ))}
                             </div>
@@ -1002,8 +1040,10 @@ export default function NewPlanPage() {
                                           onMouseEnter={e => e.currentTarget.style.background = "var(--color-surface-raised)"}
                                           onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                                           onMouseDown={() => {
-                                            if (sug.type === 'recipe') {
-                                              addRecipeToMeal(1, moment.key, sug)
+                                          if (sug.type === 'recipe') {
+                                          // Usar la versión completa con ingredientes si está en memoria
+                                          const fullRecipe = recipesRef.current.find(r => r.id === sug.id) || sug
+                                            addRecipeToMeal(1, moment.key, fullRecipe)
                                               removeMealFood(1, moment.key, idx)
                                             } else {
                                               updateMealFood(1, moment.key, idx, 'food_id', sug.id)

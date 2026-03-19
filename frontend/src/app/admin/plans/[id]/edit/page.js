@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
 import { api } from "@/lib/api"
@@ -61,6 +61,11 @@ export default function EditPlanPage() {
   const [users, setUsers]             = useState([])
   const [units, setUnits]             = useState([])
   const [recipes, setRecipes]         = useState([])
+  const recipesRef = React.useRef([])
+  const setRecipesAndRef = (data) => {
+    recipesRef.current = data
+    setRecipes(data)
+  }
   const [loading, setLoading]         = useState(false)
   const [fetchingData, setFetchingData] = useState(true)
   const [selectedUser, setSelectedUser] = useState(null)
@@ -155,7 +160,7 @@ export default function EditPlanPage() {
         const loaded = withIngredients
           .filter(r => r.status === 'fulfilled')
           .map(r => r.value.data)
-        setRecipes(loaded)
+        setRecipesAndRef(loaded)
       } catch (e) {
         console.warn("No se pudieron cargar las recetas:", e)
       }
@@ -219,12 +224,23 @@ export default function EditPlanPage() {
           return
         }
         try {
-          const res = await api.get(`/v1/foods?search=${encodeURIComponent(query)}&per_page=8`)
-          const foodItems   = (res.data?.data || res.data || []).map(f => ({ ...f, _type: 'food' }))
-          const recipeItems = recipes
+          const [foodsRes, recipesSearchRes] = await Promise.allSettled([
+            api.get(`/v1/foods?search=${encodeURIComponent(query)}&per_page=8`),
+            api.get(`/v1/recipes?search=${encodeURIComponent(query)}&per_page=5`),
+          ])
+          const foodItems = foodsRes.status === 'fulfilled'
+            ? (foodsRes.value.data?.data || foodsRes.value.data || []).map(f => ({ ...f, _type: 'food' }))
+            : []
+          const apiRecipes = recipesSearchRes.status === 'fulfilled'
+            ? (recipesSearchRes.value.data?.data || []).map(r => ({ ...r, _type: 'recipe' }))
+            : []
+          const memRecipes = recipesRef.current
             .filter(r => r.title?.toLowerCase().includes(query.toLowerCase()))
-            .slice(0, 3)
+            .slice(0, 5)
             .map(r => ({ ...r, _type: 'recipe' }))
+          const seen = new Set(apiRecipes.map(r => r.id))
+          const extraRecipes = memRecipes.filter(r => !seen.has(r.id))
+          const recipeItems = [...apiRecipes, ...extraRecipes].slice(0, 5)
           setFoodResults(p => ({ ...p, [inputKey]: [...foodItems, ...recipeItems] }))
         } catch {
           setFoodResults(p => ({ ...p, [inputKey]: [] }))
@@ -831,8 +847,9 @@ export default function EditPlanPage() {
                                       onMouseEnter={e => e.currentTarget.style.background = "var(--color-surface-raised)"}
                                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                                       onMouseDown={() => {
-                                        if (sug._type === 'recipe') {
-                                          addRecipeToMeal(day, moment.key, sug)
+                                      if (sug._type === 'recipe') {
+                                      const fullRecipe = recipesRef.current.find(r => r.id === sug.id) || sug
+                                      addRecipeToMeal(day, moment.key, fullRecipe)
                                           removeRow(key, idx)
                                         } else {
                                           updateRowFields(key, idx, { food_id: sug.id, food: sug, _existing: false })
